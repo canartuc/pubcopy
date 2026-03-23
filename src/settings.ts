@@ -1,16 +1,38 @@
+/**
+ * @module settings
+ *
+ * Plugin settings interface, defaults, and the Obsidian settings tab UI.
+ *
+ * Settings are persisted via Obsidian's `loadData()`/`saveData()` mechanism,
+ * which stores them in `<vault>/.obsidian/plugins/pubcopy/data.json`.
+ */
+
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type PubcopyPlugin from "./main";
 
+/**
+ * How to handle images during conversion.
+ * - `auto`: Base64-encode local vault images, pass through remote URLs.
+ * - `always-base64`: Base64-encode everything (remote images can't be fetched, so they fall back to URL).
+ * - `always-url`: Keep all image references as URLs (local images may break outside the vault).
+ */
 export type ImageHandling = "auto" | "always-base64" | "always-url";
 
+/** All user-configurable settings for Pubcopy. */
 export interface PubcopySettings {
+  /** Remove YAML frontmatter block from output. */
   stripFrontmatter: boolean;
+  /** Remove Obsidian tags (#tag, #tag/subtag) from output. */
   stripTags: boolean;
+  /** Convert [[wikilinks]] to plain text in output. */
   stripWikilinks: boolean;
+  /** How to handle local and remote images. */
   imageHandling: ImageHandling;
+  /** Show an Obsidian Notice after successful copy. */
   showNotification: boolean;
 }
 
+/** Sensible defaults for first-time users. All stripping enabled, auto image mode. */
 export const DEFAULT_SETTINGS: PubcopySettings = {
   stripFrontmatter: true,
   stripTags: true,
@@ -19,6 +41,12 @@ export const DEFAULT_SETTINGS: PubcopySettings = {
   showNotification: true,
 };
 
+/**
+ * Settings tab rendered in Obsidian's Settings panel.
+ *
+ * Includes all configurable options and a Ko-fi donation button
+ * at the bottom of the page.
+ */
 export class PubcopySettingTab extends PluginSettingTab {
   plugin: PubcopyPlugin;
 

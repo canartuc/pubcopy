@@ -1,3 +1,26 @@
+/**
+ * @module converter/html-converter
+ *
+ * Core markdown-to-HTML conversion using the unified/remark/rehype pipeline.
+ *
+ * This module handles two categories of work:
+ *
+ * **Pre-pass transformations** (before remark parsing):
+ * Obsidian-specific syntax that remark can't parse is converted to standard
+ * HTML or markdown before entering the pipeline. This includes callouts,
+ * highlights, task lists, image embeds, mermaid blocks, and math expressions.
+ *
+ * **Post-pass transformations** (after rehype serialization):
+ * Platform-specific adjustments applied to the HTML output: heading level
+ * capping, list nesting flattening, code block wrapper changes, and
+ * local image resolution.
+ *
+ * **Security**: The pipeline uses `rehype-sanitize` with a strict allowlist
+ * to strip `<script>`, `<style>`, `<iframe>`, and other dangerous elements.
+ * Content injected during the pre-pass (highlights, callouts) is escaped
+ * before interpolation.
+ */
+
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
@@ -11,6 +34,17 @@ import { WarningCollector } from "../utils/errors";
 import { resolveImage, isImageFile } from "./image-handler";
 import { renderInlineMath, renderBlockMath } from "./math-renderer";
 
+/**
+ * Sanitization schema for rehype-sanitize.
+ *
+ * Allowlists safe HTML elements and attributes that the converter
+ * intentionally produces. Strips dangerous elements like `<script>`,
+ * `<style>`, `<iframe>`, `<object>`, `<embed>`, `<form>`, and form controls.
+ *
+ * This is a defense-in-depth measure. The converter also escapes user
+ * content at injection points, but the sanitizer catches anything that
+ * slips through (e.g., raw HTML in the source markdown).
+ */
 const SANITIZE_SCHEMA = {
   tagNames: [
     "h1", "h2", "h3", "h4", "h5", "h6",
@@ -42,11 +76,31 @@ const SANITIZE_SCHEMA = {
   strip: ["script", "style", "iframe", "object", "embed", "form", "input", "textarea", "button"],
 };
 
+/** Return type for the HTML conversion step. */
 interface ConvertResult {
+  /** The converted HTML string. */
   html: string;
+  /** Approximate count of HTML elements produced. */
   elementCount: number;
 }
 
+/**
+ * Convert preprocessed markdown to platform-optimized HTML.
+ *
+ * Runs the full conversion pipeline:
+ * 1. Pre-pass: Transform Obsidian extensions (callouts, highlights, tasks, images, mermaid, math).
+ * 2. Parse: unified/remark-parse/remark-gfm for standard markdown.
+ * 3. Sanitize: rehype-sanitize strips dangerous HTML.
+ * 4. Serialize: rehype-stringify produces HTML string.
+ * 5. Post-pass: Apply platform-specific transformations (heading cap, list flatten, code wrapper).
+ *
+ * @param markdown - Preprocessed markdown (Obsidian syntax already stripped by preprocessor).
+ * @param profile - Target platform profile.
+ * @param settings - User's plugin settings.
+ * @param app - Obsidian App instance for vault access (image resolution).
+ * @param warnings - Shared warning collector.
+ * @returns HTML string and element count.
+ */
 export async function convertToHtml(
   markdown: string,
   profile: PlatformProfile,
@@ -56,12 +110,12 @@ export async function convertToHtml(
 ): Promise<ConvertResult> {
   let elementCount = 0;
 
-  // Pre-pass: handle Obsidian-specific elements before remark parsing
+  // === PRE-PASS: Handle Obsidian-specific elements before remark parsing ===
 
-  // 1. Handle callouts: convert > [!type] to styled blockquotes
+  // 1. Callouts: convert > [!type] to styled blockquotes with bold label
   let processed = convertCallouts(markdown);
 
-  // 2. Handle highlight syntax ==text== -> <mark> or <strong>
+  // 2. Highlights: ==text== -> <strong> (escaped to prevent XSS)
   processed = processed.replace(
     /==((?:[^=]|=[^=])+)==/g,
     (_match, content: string) => {
@@ -73,17 +127,19 @@ export async function convertToHtml(
     }
   );
 
-  // 3. Handle task lists: - [ ] and - [x]
+  // 3. Task lists: convert checkbox syntax to unicode characters
+  //    (neither Medium nor Substack supports interactive checkboxes)
   processed = processed.replace(
     /^(\s*)- \[([ xX])\] (.+)$/gm,
     (_match, indent: string, check: string, text: string) => {
       elementCount++;
-      const checkbox = check.trim() ? "☑" : "☐";
+      const checkbox = check.trim() ? "\u2611" : "\u2610";
       return `${indent}- ${checkbox} ${text}`;
     }
   );
 
-  // 4. Handle image embeds: ![[image.png]], ![[image.png|300]], ![[image.png|My caption]]
+  // 4. Image embeds: ![[image.png]], ![[image.png|300]], ![[image.png|My caption]]
+  //    Pipe value is size if numeric, caption otherwise
   const imageEmbedRegex = /!\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g;
   const imageMatches = [...processed.matchAll(imageEmbedRegex)];
   for (const match of imageMatches) {
@@ -93,7 +149,6 @@ export async function convertToHtml(
     elementCount++;
     const pipeValue = match[2]?.trim();
 
-    // Determine if pipe value is a size (digits, or digitsxdigits) or a caption
     let sizeStr: string | undefined;
     let caption: string | undefined;
     if (pipeValue) {
@@ -117,14 +172,14 @@ export async function convertToHtml(
     processed = processed.replace(match[0], imgTag);
   }
 
-  // 5. Strip mermaid code blocks (not supported by Medium or Substack)
+  // 5. Mermaid: strip code blocks (not supported by Medium or Substack)
   const mermaidRegex = /```mermaid\n([\s\S]*?)```/g;
   processed = processed.replace(mermaidRegex, (_match) => {
     warnings.add("mermaid", "diagram", "Mermaid diagrams not supported, skipped");
     return "";
   });
 
-  // 6. Handle block math $$...$$ (before inline math)
+  // 6. Block math: $$...$$ (must run before inline math to avoid false matches)
   const blockMathRegex = /\$\$([\s\S]*?)\$\$/g;
   const blockMathMatches = [...processed.matchAll(blockMathRegex)];
   for (const match of blockMathMatches) {
@@ -133,7 +188,7 @@ export async function convertToHtml(
     processed = processed.replace(match[0], rendered);
   }
 
-  // 7. Handle inline math $...$
+  // 7. Inline math: $...$ (single dollar, no newlines, not preceded by \ or $)
   const inlineMathRegex = /(?<![\\$])\$([^\$\n]+?)\$(?!\$)/g;
   const inlineMathMatches = [...processed.matchAll(inlineMathRegex)];
   for (const match of inlineMathMatches) {
@@ -142,7 +197,9 @@ export async function convertToHtml(
     processed = processed.replace(match[0], rendered);
   }
 
-  // Parse with remark/rehype pipeline (sanitize strips script/style/iframe/etc.)
+  // === PARSE: Run the remark/rehype pipeline ===
+  // allowDangerousHtml is required because our pre-pass injects HTML tags
+  // rehype-sanitize strips anything dangerous after parsing
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -153,13 +210,12 @@ export async function convertToHtml(
   const file = await processor.process(processed);
   let html = String(file);
 
-  // Count elements from the HTML output
   const tagCounts = countHtmlElements(html);
   elementCount += tagCounts;
 
-  // Post-processing: apply platform-specific transformations
+  // === POST-PASS: Apply platform-specific transformations ===
 
-  // Heading level capping
+  // Heading level capping (Medium maxes at H4)
   if (profile.maxHeadingLevel < 6) {
     for (let level = 6; level > profile.maxHeadingLevel; level--) {
       const openTag = new RegExp(`<h${level}>`, "g");
@@ -169,25 +225,25 @@ export async function convertToHtml(
     }
   }
 
-  // List nesting flattening for Medium
+  // List nesting depth limit (Medium allows max 2 levels)
   if (profile.maxListNestingDepth < Infinity) {
     html = flattenNestedLists(html, profile.maxListNestingDepth);
   }
 
-  // Code block wrapper adjustment
+  // Code block wrapper style (Substack prefers <pre> without inner <code>)
   if (profile.codeBlockWrapper === "pre-only") {
     html = html.replace(/<pre><code([^>]*)>/g, "<pre$1>");
     html = html.replace(/<\/code><\/pre>/g, "</pre>");
   }
 
-  // Handle markdown images: add captions from alt text + resolve local paths
+  // Resolve local image paths and add captions for standard markdown images
   const mdImageRegex = /<img src="([^"]+)" alt="([^"]*)"([^>]*)>/g;
   const mdImageMatches = [...html.matchAll(mdImageRegex)];
   for (const match of mdImageMatches) {
     const src = match[1];
     const alt = match[2];
     const isLocal = !src.startsWith("data:") && !src.startsWith("http:") && !src.startsWith("https:");
-    // Use alt text as caption if it's not just the filename
+    // Use alt text as caption only if it's meaningful (not just the filename)
     const caption = (alt && alt !== src && !isImageFile(alt)) ? alt : undefined;
 
     if (isLocal) {
@@ -199,7 +255,8 @@ export async function convertToHtml(
         undefined,
         settings.imageHandling,
         warnings,
-        caption
+        caption,
+        profile.name
       );
       html = html.replace(match[0], imgTag);
     } else if (caption) {
@@ -216,6 +273,16 @@ export async function convertToHtml(
   return { html, elementCount };
 }
 
+/**
+ * Convert Obsidian callout syntax to styled blockquotes.
+ *
+ * Transforms `> [!type] content` into `> **Type:** content`.
+ * Handles foldable markers (`+`/`-`) by stripping them (content always visible).
+ * Regular blockquotes (without `[!type]`) pass through unchanged.
+ *
+ * @param text - Markdown text potentially containing callout syntax.
+ * @returns Markdown with callouts converted to styled blockquotes.
+ */
 function convertCallouts(text: string): string {
   const lines = text.split("\n");
   const result: string[] = [];
@@ -225,7 +292,6 @@ function convertCallouts(text: string): string {
   let calloutDepth = 0;
 
   for (const line of lines) {
-    // Detect callout start: > [!type] or > [!type]+ or > [!type]-
     const calloutMatch = line.match(
       /^(>{1,})\s*\[!(\w+)\][+-]?\s*(.*)?$/
     );
@@ -242,12 +308,11 @@ function convertCallouts(text: string): string {
     }
 
     if (inCallout) {
-      // Check if line continues the callout (starts with >)
       const continuationMatch = line.match(/^>{1,}\s?(.*)$/);
       if (continuationMatch) {
         calloutContent.push(continuationMatch[1]);
       } else {
-        // End of callout
+        // End of callout block
         const content = calloutContent.join("\n").trim();
         result.push(`> **${calloutType}:** ${content}`);
         result.push("");
@@ -263,7 +328,7 @@ function convertCallouts(text: string): string {
     result.push(line);
   }
 
-  // Flush remaining callout
+  // Flush any remaining callout at end of file
   if (inCallout && calloutContent.length > 0) {
     const content = calloutContent.join("\n").trim();
     result.push(`> **${calloutType}:** ${content}`);
@@ -272,19 +337,25 @@ function convertCallouts(text: string): string {
   return result.join("\n");
 }
 
+/**
+ * Flatten nested lists beyond the specified maximum depth.
+ *
+ * Removes `<ul>`/`<ol>` tags for nesting levels that exceed the platform's
+ * limit. List items at deeper levels still appear, just without additional
+ * indentation. Used for Medium (max 2 levels).
+ */
 function flattenNestedLists(html: string, maxDepth: number): string {
-  // Simple approach: remove nesting beyond maxDepth by counting nested <ul>/<ol> tags
   let depth = 0;
-  return html.replace(/<(\/?)([ou]l)([^>]*)>/g, (match, closing, tag) => {
+  return html.replace(/<(\/?)([ou]l)([^>]*)>/g, (match, closing) => {
     if (!closing) {
       depth++;
       if (depth > maxDepth) {
-        return ""; // Remove opening tag for deep nesting
+        return "";
       }
     } else {
       if (depth > maxDepth) {
         depth--;
-        return ""; // Remove closing tag for deep nesting
+        return "";
       }
       depth--;
     }
@@ -292,6 +363,7 @@ function flattenNestedLists(html: string, maxDepth: number): string {
   });
 }
 
+/** Escape HTML special characters in user content to prevent XSS. */
 function escapeHtmlCaption(str: string): string {
   return str
     .replace(/&/g, "&amp;")
@@ -300,6 +372,10 @@ function escapeHtmlCaption(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * Count the approximate number of significant HTML elements in the output.
+ * Used for the success notification ("Copied for Medium: N elements").
+ */
 function countHtmlElements(html: string): number {
   const tagPattern = /<(h[1-6]|p|strong|em|s|code|pre|blockquote|hr|ul|ol|li|table|tr|th|td|a|img|br|sup)\b/g;
   const matches = html.match(tagPattern);
