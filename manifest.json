@@ -3,7 +3,7 @@
   "name": "Pubcopy",
   "version": "1.0.0",
   "minAppVersion": "1.5.0",
-  "description": "Copy notes as platform-optimized HTML for Medium and Substack",
+  "description": "Copy notes as platform-optimized HTML for Medium and Substack.",
   "author": "canartuc",
   "authorUrl": "https://canartuc.net",
   "isDesktopOnly": false
