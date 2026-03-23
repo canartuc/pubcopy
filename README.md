@@ -1,5 +1,11 @@
 # Pubcopy
 
+[![GitHub release](https://img.shields.io/github/v/release/canartuc/pubcopy?labelColor=171717&color=0075FF)](https://github.com/canartuc/pubcopy/releases/latest)
+[![Tests](https://img.shields.io/github/actions/workflow/status/canartuc/pubcopy/release.yml?label=tests&labelColor=171717&color=2DA44E)](https://github.com/canartuc/pubcopy/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow?labelColor=171717)](https://github.com/canartuc/pubcopy/blob/main/LICENSE)
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/canartuc/pubcopy?utm_source=oss&utm_medium=github&utm_campaign=canartuc%2Fpubcopy&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-FF5E5B?logo=ko-fi&logoColor=white&labelColor=171717)](https://ko-fi.com/canartuc)
+
 Obsidian plugin that copies your notes as platform-optimized HTML to clipboard for pasting into Medium and Substack without formatting loss.
 
 ## Install
