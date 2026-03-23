@@ -2,6 +2,7 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkRehype from "remark-rehype";
+import rehypeSanitize from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
 import type { App } from "obsidian";
 import type { PubcopySettings } from "../settings";
@@ -9,6 +10,37 @@ import type { PlatformProfile } from "../platforms";
 import { WarningCollector } from "../utils/errors";
 import { resolveImage, isImageFile } from "./image-handler";
 import { renderInlineMath, renderBlockMath } from "./math-renderer";
+
+const SANITIZE_SCHEMA = {
+  tagNames: [
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "p", "br", "hr",
+    "strong", "em", "s", "code", "pre", "mark",
+    "blockquote",
+    "ul", "ol", "li",
+    "a",
+    "img",
+    "table", "thead", "tbody", "tr", "th", "td",
+    "figure", "figcaption",
+    "div", "span", "sup", "sub", "kbd",
+  ],
+  attributes: {
+    a: ["href", "title"],
+    img: ["src", "alt", "width", "height"],
+    code: ["className"],
+    pre: ["className"],
+    td: ["style"],
+    th: ["style"],
+    div: ["className"],
+    span: ["className", "style"],
+    "*": [],
+  },
+  protocols: {
+    href: ["http", "https", "mailto"],
+    src: ["http", "https", "data"],
+  },
+  strip: ["script", "style", "iframe", "object", "embed", "form", "input", "textarea", "button"],
+};
 
 interface ConvertResult {
   html: string;
@@ -34,9 +66,10 @@ export async function convertToHtml(
     /==((?:[^=]|=[^=])+)==/g,
     (_match, content: string) => {
       elementCount++;
+      const safe = escapeHtmlCaption(content);
       return profile.supportsHighlight
-        ? `<mark>${content}</mark>`
-        : `<strong>${content}</strong>`;
+        ? `<mark>${safe}</mark>`
+        : `<strong>${safe}</strong>`;
     }
   );
 
@@ -109,12 +142,13 @@ export async function convertToHtml(
     processed = processed.replace(match[0], rendered);
   }
 
-  // Parse with remark/rehype pipeline
+  // Parse with remark/rehype pipeline (sanitize strips script/style/iframe/etc.)
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkRehype, { allowDangerousHtml: true })
-    .use(rehypeStringify, { allowDangerousHtml: true });
+    .use(rehypeSanitize, SANITIZE_SCHEMA)
+    .use(rehypeStringify);
 
   const file = await processor.process(processed);
   let html = String(file);

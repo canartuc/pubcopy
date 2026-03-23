@@ -19,12 +19,11 @@ export function processFootnotes(
   let counter = 0;
 
   // Extract footnote definitions from the HTML
-  // Pattern: <p>[^N]: content</p> or similar
   let result = html.replace(
     /<p>\[\^(\w+)\]:\s*([\s\S]*?)<\/p>/g,
     (_match, id: string, content: string) => {
       counter++;
-      footnotes.push({ id, number: counter, content: content.trim() });
+      footnotes.push({ id, number: counter, content: escapeHtml(content.trim()) });
       return "";
     }
   );
@@ -41,12 +40,12 @@ export function processFootnotes(
     );
   }
 
-  // Also handle inline footnotes ^[text]
+  // Handle inline footnotes ^[text] (cap content length to prevent ReDoS)
   result = result.replace(
-    /\^\[([^\]]+)\]/g,
+    /\^\[([^\]]{1,500})\]/g,
     (_match, content: string) => {
       counter++;
-      footnotes.push({ id: `inline-${counter}`, number: counter, content });
+      footnotes.push({ id: `inline-${counter}`, number: counter, content: escapeHtml(content) });
       return `<sup>${counter}</sup>`;
     }
   );
@@ -65,4 +64,12 @@ export function processFootnotes(
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
