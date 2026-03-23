@@ -1,14 +1,12 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type PubcopyPlugin from "./main";
 
-export type MermaidFormat = "svg" | "png";
 export type ImageHandling = "auto" | "always-base64" | "always-url";
 
 export interface PubcopySettings {
   stripFrontmatter: boolean;
   stripTags: boolean;
   stripWikilinks: boolean;
-  mermaidFormat: MermaidFormat;
   imageHandling: ImageHandling;
   showNotification: boolean;
 }
@@ -17,7 +15,6 @@ export const DEFAULT_SETTINGS: PubcopySettings = {
   stripFrontmatter: true,
   stripTags: true,
   stripWikilinks: true,
-  mermaidFormat: "svg",
   imageHandling: "auto",
   showNotification: true,
 };
@@ -73,20 +70,6 @@ export class PubcopySettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Mermaid rendering format")
-      .setDesc("Output format for Mermaid diagrams")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("svg", "SVG")
-          .addOption("png", "PNG")
-          .setValue(this.plugin.settings.mermaidFormat)
-          .onChange(async (value) => {
-            this.plugin.settings.mermaidFormat = value as MermaidFormat;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
       .setName("Image handling")
       .setDesc("How to handle images in output")
       .addDropdown((dropdown) =>
@@ -112,5 +95,27 @@ export class PubcopySettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+
+    // Donation section
+    containerEl.createEl("hr");
+
+    const donationDiv = containerEl.createDiv({ cls: "pubcopy-donation" });
+    donationDiv.createEl("p", {
+      text: "If Pubcopy saves you time, consider supporting its development:",
+    });
+
+    const link = donationDiv.createEl("a", {
+      href: "https://ko-fi.com/canartuc",
+    });
+    link.setAttr("target", "_blank");
+
+    const kofiImg = link.createEl("img", {
+      attr: {
+        src: "https://storage.ko-fi.com/cdn/kofi2.png?v=6",
+        alt: "Buy Me a Coffee at ko-fi.com",
+      },
+    });
+    kofiImg.setAttr("height", "36");
+    kofiImg.setAttr("style", "border:0;height:36px;");
   }
 }

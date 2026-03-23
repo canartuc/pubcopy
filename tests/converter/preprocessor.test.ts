@@ -6,7 +6,6 @@ const defaultSettings: PubcopySettings = {
   stripFrontmatter: true,
   stripTags: true,
   stripWikilinks: true,
-  mermaidFormat: "svg",
   imageHandling: "auto",
   showNotification: true,
 };

@@ -14,10 +14,6 @@ describe("settings", () => {
     expect(DEFAULT_SETTINGS.stripWikilinks).toBe(true);
   });
 
-  it("has correct default for mermaidFormat", () => {
-    expect(DEFAULT_SETTINGS.mermaidFormat).toBe("svg");
-  });
-
   it("has correct default for imageHandling", () => {
     expect(DEFAULT_SETTINGS.imageHandling).toBe("auto");
   });
