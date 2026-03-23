@@ -1,0 +1,19 @@
+# build output
+main.js
+
+# npm
+node_modules
+
+# env
+.env
+
+# IDE
+.idea
+.vscode
+
+# OS
+.DS_Store
+Thumbs.db
+
+# test
+coverage/
