@@ -6,6 +6,7 @@ node_modules
 
 # env
 .env
+.deploy.json
 
 # IDE
 .idea
