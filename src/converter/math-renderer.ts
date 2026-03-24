@@ -16,6 +16,7 @@
  */
 
 import { WarningCollector } from "../utils/errors";
+import { escapeHtml } from "../utils/html";
 
 /** Cached KaTeX module. Loaded once on first use, reused for subsequent renders. */
 let katexModule: typeof import("katex") | null = null;
@@ -82,11 +83,3 @@ export async function renderBlockMath(
   }
 }
 
-/** Escape HTML special characters to prevent injection in fallback output. */
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}

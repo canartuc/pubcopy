@@ -17,6 +17,7 @@
 import type { App } from "obsidian";
 import type { ImageHandling } from "../settings";
 import { WarningCollector } from "../utils/errors";
+import { escapeHtml } from "../utils/html";
 
 /** Supported image file extensions. Used to distinguish image embeds from note embeds. */
 const IMAGE_EXTENSIONS = new Set([
@@ -171,11 +172,3 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-/** Escape HTML special characters to prevent injection in attribute values. */
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}

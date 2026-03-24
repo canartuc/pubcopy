@@ -22,6 +22,7 @@
  */
 
 import type { PlatformProfile } from "../platforms";
+import { escapeHtml } from "../utils/html";
 
 /** Internal representation of a parsed footnote. */
 interface Footnote {
@@ -100,11 +101,3 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Escape HTML special characters to prevent XSS in footnote content. */
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
