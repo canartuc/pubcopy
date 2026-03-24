@@ -50,3 +50,4 @@ export interface PlatformProfile {
 
 export { MediumProfile } from "./medium";
 export { SubstackProfile } from "./substack";
+export { MarkdownProfile } from "./markdown";

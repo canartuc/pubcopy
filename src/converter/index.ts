@@ -65,6 +65,16 @@ export async function convert(
   // Stage 2: Preprocess (strip Obsidian-specific syntax)
   processed = preprocess(processed, settings);
 
+  // Markdown profile: return preprocessed markdown directly, skip HTML conversion
+  if (profile.name === "Markdown") {
+    return {
+      html: processed,
+      plainText: processed,
+      elementCount: 0,
+      warnings,
+    };
+  }
+
   // Stage 3: Convert markdown to HTML (remark/rehype + Obsidian extensions)
   const { html, elementCount } = await convertToHtml(
     processed,
