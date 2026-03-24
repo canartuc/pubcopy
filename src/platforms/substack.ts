@@ -17,6 +17,7 @@ import type { PlatformProfile } from "./index";
 
 export const SubstackProfile: PlatformProfile = {
   name: "Substack",
+  outputMode: "html",
   maxHeadingLevel: 6,
   maxListNestingDepth: Infinity,
   codeBlockWrapper: "pre-only",

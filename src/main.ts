@@ -24,7 +24,7 @@ import {
   PubcopySettingTab,
   DEFAULT_SETTINGS,
 } from "./settings";
-import { MediumProfile, SubstackProfile } from "./platforms";
+import { MediumProfile, SubstackProfile, MarkdownProfile } from "./platforms";
 import type { PlatformProfile } from "./platforms";
 import { convert } from "./converter";
 import { writeToClipboard } from "./clipboard/writer";
@@ -61,6 +61,14 @@ export default class PubcopyPlugin extends Plugin {
       name: "Copy for Substack",
       editorCallback: (editor: Editor) => {
         this.copyForPlatform(editor, SubstackProfile);
+      },
+    });
+
+    this.addCommand({
+      id: "copy-as-markdown",
+      name: "Copy as Markdown",
+      editorCallback: (editor: Editor) => {
+        this.copyForPlatform(editor, MarkdownProfile);
       },
     });
 
@@ -103,6 +111,12 @@ export default class PubcopyPlugin extends Plugin {
             .setIcon("mail")
             .onClick(() => this.copyForPlatform(editor, SubstackProfile));
         });
+        submenu.addItem((sub: MenuItem) => {
+          sub
+            .setTitle("Copy as Markdown")
+            .setIcon("copy")
+            .onClick(() => this.copyForPlatform(editor, MarkdownProfile));
+        });
       });
     } catch {
       // Fallback: flat menu items if setSubmenu() is not available
@@ -117,6 +131,12 @@ export default class PubcopyPlugin extends Plugin {
           .setTitle("Pubcopy: Copy for Substack")
           .setIcon("mail")
           .onClick(() => this.copyForPlatform(editor, SubstackProfile));
+      });
+      menu.addItem((item: MenuItem) => {
+        item
+          .setTitle("Pubcopy: Copy as Markdown")
+          .setIcon("copy")
+          .onClick(() => this.copyForPlatform(editor, MarkdownProfile));
       });
     }
   }
@@ -142,6 +162,12 @@ export default class PubcopyPlugin extends Plugin {
             .setIcon("mail")
             .onClick(() => this.copyFullNoteForPlatform(SubstackProfile));
         });
+        submenu.addItem((sub: MenuItem) => {
+          sub
+            .setTitle("Copy as Markdown")
+            .setIcon("copy")
+            .onClick(() => this.copyFullNoteForPlatform(MarkdownProfile));
+        });
       });
     } catch {
       menu.addItem((item: MenuItem) => {
@@ -155,6 +181,12 @@ export default class PubcopyPlugin extends Plugin {
           .setTitle("Pubcopy: Copy for Substack")
           .setIcon("mail")
           .onClick(() => this.copyFullNoteForPlatform(SubstackProfile));
+      });
+      menu.addItem((item: MenuItem) => {
+        item
+          .setTitle("Pubcopy: Copy as Markdown")
+          .setIcon("copy")
+          .onClick(() => this.copyFullNoteForPlatform(MarkdownProfile));
       });
     }
   }

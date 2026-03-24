@@ -13,6 +13,13 @@
  * No changes to the converter pipeline are needed.
  */
 
+/**
+ * Output format for the conversion pipeline.
+ * - `html`: Full HTML conversion with platform-specific transformations.
+ * - `markdown`: Skip HTML conversion, return preprocessed clean markdown.
+ */
+export type OutputMode = "html" | "markdown";
+
 /** How to wrap fenced code blocks in the output HTML. */
 export type CodeBlockWrapper = "pre-code" | "pre-only";
 
@@ -32,6 +39,8 @@ export type FootnoteStrategy = "superscript-endnotes" | "native";
 export interface PlatformProfile {
   /** Display name shown in notifications (e.g., "Medium", "Substack"). */
   name: string;
+  /** Output format: "html" for platform-optimized HTML, "markdown" for clean markdown. */
+  outputMode: OutputMode;
   /** Maximum heading level the platform supports. H5/H6 are flattened to this level. */
   maxHeadingLevel: number;
   /** Maximum nesting depth for lists. Deeper levels are flattened. Use Infinity for unlimited. */
@@ -50,3 +59,4 @@ export interface PlatformProfile {
 
 export { MediumProfile } from "./medium";
 export { SubstackProfile } from "./substack";
+export { MarkdownProfile } from "./markdown";

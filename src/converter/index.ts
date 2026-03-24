@@ -46,7 +46,7 @@ export interface ConversionResult {
  * the full 5-stage pipeline and returns both HTML and plain-text output.
  *
  * @param markdown - Raw markdown content (full note or selection).
- * @param profile - Target platform profile (Medium or Substack).
+ * @param profile - Target platform profile (Medium, Substack, or Markdown).
  * @param settings - User's plugin settings.
  * @param app - Obsidian App instance for vault and metadata access.
  * @returns Conversion result with HTML, plain text, element count, and warnings.
@@ -64,6 +64,16 @@ export async function convert(
 
   // Stage 2: Preprocess (strip Obsidian-specific syntax)
   processed = preprocess(processed, settings);
+
+  // Markdown output mode: return preprocessed markdown directly, skip HTML conversion
+  if (profile.outputMode === "markdown") {
+    return {
+      html: "",
+      plainText: processed,
+      elementCount: 0,
+      warnings,
+    };
+  }
 
   // Stage 3: Convert markdown to HTML (remark/rehype + Obsidian extensions)
   const { html, elementCount } = await convertToHtml(

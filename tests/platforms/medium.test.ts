@@ -6,6 +6,10 @@ describe("MediumProfile", () => {
     expect(MediumProfile.name).toBe("Medium");
   });
 
+  it("outputs html", () => {
+    expect(MediumProfile.outputMode).toBe("html");
+  });
+
   it("caps heading level at 4", () => {
     expect(MediumProfile.maxHeadingLevel).toBe(4);
   });
