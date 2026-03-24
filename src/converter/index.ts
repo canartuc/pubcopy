@@ -46,7 +46,7 @@ export interface ConversionResult {
  * the full 5-stage pipeline and returns both HTML and plain-text output.
  *
  * @param markdown - Raw markdown content (full note or selection).
- * @param profile - Target platform profile (Medium or Substack).
+ * @param profile - Target platform profile (Medium, Substack, or Markdown).
  * @param settings - User's plugin settings.
  * @param app - Obsidian App instance for vault and metadata access.
  * @returns Conversion result with HTML, plain text, element count, and warnings.
