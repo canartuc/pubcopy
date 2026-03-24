@@ -1,6 +1,6 @@
 {
   "name": "obsidian-pubcopy",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Copy Obsidian notes as platform-optimized HTML for Medium and Substack",
   "main": "main.js",
   "scripts": {

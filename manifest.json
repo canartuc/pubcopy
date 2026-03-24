@@ -1,7 +1,7 @@
 {
   "id": "pubcopy",
   "name": "Pubcopy",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "minAppVersion": "1.5.0",
   "description": "Copy notes as platform-optimized HTML for Medium and Substack.",
   "author": "canartuc",
