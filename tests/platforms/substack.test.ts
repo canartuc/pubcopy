@@ -6,6 +6,10 @@ describe("SubstackProfile", () => {
     expect(SubstackProfile.name).toBe("Substack");
   });
 
+  it("outputs html", () => {
+    expect(SubstackProfile.outputMode).toBe("html");
+  });
+
   it("allows all heading levels", () => {
     expect(SubstackProfile.maxHeadingLevel).toBe(6);
   });

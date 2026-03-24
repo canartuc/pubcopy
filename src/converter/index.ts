@@ -65,10 +65,10 @@ export async function convert(
   // Stage 2: Preprocess (strip Obsidian-specific syntax)
   processed = preprocess(processed, settings);
 
-  // Markdown profile: return preprocessed markdown directly, skip HTML conversion
-  if (profile.name === "Markdown") {
+  // Markdown output mode: return preprocessed markdown directly, skip HTML conversion
+  if (profile.outputMode === "markdown") {
     return {
-      html: processed,
+      html: "",
       plainText: processed,
       elementCount: 0,
       warnings,

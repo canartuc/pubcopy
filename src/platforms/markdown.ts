@@ -15,6 +15,7 @@ import type { PlatformProfile } from "./index";
 
 export const MarkdownProfile: PlatformProfile = {
   name: "Markdown",
+  outputMode: "markdown",
   maxHeadingLevel: 6,
   maxListNestingDepth: Infinity,
   codeBlockWrapper: "pre-code",

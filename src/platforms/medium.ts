@@ -18,6 +18,7 @@ import type { PlatformProfile } from "./index";
 
 export const MediumProfile: PlatformProfile = {
   name: "Medium",
+  outputMode: "html",
   maxHeadingLevel: 4,
   maxListNestingDepth: 2,
   codeBlockWrapper: "pre-code",
