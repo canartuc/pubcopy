@@ -1,11 +1,46 @@
-import type { PlatformProfile } from "../platforms";
+/**
+ * @module converter/footnote-processor
+ *
+ * Post-processes footnotes in the converted HTML based on the target platform.
+ *
+ * Two strategies:
+ *
+ * **Substack (`native`)**: Passes HTML through unchanged. Substack's editor
+ * handles footnote markup natively.
+ *
+ * **Medium (`superscript-endnotes`)**: Medium has no native footnote support.
+ * This processor:
+ * 1. Extracts footnote definitions (`[^id]: content`) from the HTML.
+ * 2. Replaces footnote references (`[^id]`) with superscript numbers.
+ * 3. Handles inline footnotes (`^[text]`) with auto-numbering.
+ * 4. Appends a "Notes" section with an ordered list at the end.
+ *
+ * Security: All footnote content is escaped via {@link escapeHtml} before
+ * injection into the output HTML to prevent XSS.
+ *
+ * ReDoS mitigation: Inline footnote content regex is capped at 500 characters.
+ */
 
+import type { PlatformProfile } from "../platforms";
+import { escapeHtml } from "../utils/html";
+
+/** Internal representation of a parsed footnote. */
 interface Footnote {
+  /** Original identifier from the source (e.g., "1", "note-a", "inline-3"). */
   id: string;
+  /** Sequential number assigned during processing (1-based). */
   number: number;
+  /** The footnote body text, already HTML-escaped. */
   content: string;
 }
 
+/**
+ * Process footnotes in the converted HTML according to the platform's strategy.
+ *
+ * @param html - The HTML output from the remark/rehype pipeline.
+ * @param profile - The target platform profile (determines footnote strategy).
+ * @returns Modified HTML with footnotes processed per platform rules.
+ */
 export function processFootnotes(
   html: string,
   profile: PlatformProfile
@@ -14,11 +49,10 @@ export function processFootnotes(
     return html;
   }
 
-  // For superscript-endnotes strategy (Medium)
   const footnotes: Footnote[] = [];
   let counter = 0;
 
-  // Extract footnote definitions from the HTML
+  // Extract footnote definitions: <p>[^id]: content</p>
   let result = html.replace(
     /<p>\[\^(\w+)\]:\s*([\s\S]*?)<\/p>/g,
     (_match, id: string, content: string) => {
@@ -40,7 +74,7 @@ export function processFootnotes(
     );
   }
 
-  // Handle inline footnotes ^[text] (cap content length to prevent ReDoS)
+  // Handle inline footnotes ^[text] (capped at 500 chars to prevent ReDoS)
   result = result.replace(
     /\^\[([^\]]{1,500})\]/g,
     (_match, content: string) => {
@@ -50,7 +84,7 @@ export function processFootnotes(
     }
   );
 
-  // Append endnotes section if there are footnotes
+  // Append endnotes section if footnotes were found
   if (footnotes.length > 0) {
     result += "\n<hr>\n<h2>Notes</h2>\n<ol>\n";
     for (const fn of footnotes) {
@@ -62,14 +96,8 @@ export function processFootnotes(
   return result;
 }
 
+/** Escape regex metacharacters in a string for safe use in `new RegExp()`. */
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}

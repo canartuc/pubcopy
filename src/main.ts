@@ -1,3 +1,23 @@
+/**
+ * @module main
+ *
+ * Pubcopy plugin entry point for Obsidian.
+ *
+ * Registers two commands ("Copy for Medium", "Copy for Substack") accessible via:
+ * - Command Palette (Cmd/Ctrl+P)
+ * - Editor right-click context menu (grouped "Pubcopy" submenu)
+ * - Three-dot "more options" menu (top-right of note)
+ *
+ * The submenu uses Obsidian's undocumented `MenuItem.setSubmenu()` API
+ * (used by community plugins like meta-bind and css-inserter). If that API
+ * is removed in a future Obsidian version, the plugin falls back to flat
+ * "Pubcopy: Copy for Medium" / "Pubcopy: Copy for Substack" menu items.
+ *
+ * Selection behavior:
+ * - Editor right-click: copies selected text if there's a selection, otherwise full note.
+ * - Three-dot menu and Command Palette: always copy the full note.
+ */
+
 import { Editor, MarkdownView, Menu, MenuItem, Notice, Plugin } from "obsidian";
 import {
   PubcopySettings,
@@ -11,6 +31,15 @@ import { writeToClipboard } from "./clipboard/writer";
 import { showSuccess, showWarnings } from "./utils/notifications";
 import { PubcopyError } from "./utils/errors";
 
+/**
+ * Main plugin class. Extends Obsidian's Plugin base class.
+ *
+ * Lifecycle:
+ * - `onload()`: Called when Obsidian loads the plugin. Registers commands,
+ *   menus, settings tab, and event handlers.
+ * - `onunload()`: Called when the plugin is disabled. Obsidian handles
+ *   cleanup of registered events and commands automatically.
+ */
 export default class PubcopyPlugin extends Plugin {
   settings: PubcopySettings = DEFAULT_SETTINGS;
 
@@ -18,7 +47,7 @@ export default class PubcopyPlugin extends Plugin {
     await this.loadSettings();
     this.addSettingTab(new PubcopySettingTab(this.app, this));
 
-    // Register commands
+    // Command Palette commands (also enables hotkey assignment in Settings > Hotkeys)
     this.addCommand({
       id: "copy-for-medium",
       name: "Copy for Medium",
@@ -35,25 +64,29 @@ export default class PubcopyPlugin extends Plugin {
       },
     });
 
-    // Register editor context menu (right-click)
+    // Editor context menu (right-click in editor area)
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor) => {
         this.addPubcopySubmenu(menu, editor);
       })
     );
 
-    // Register file menu (three-dot menu)
+    // File menu (three-dot "more options" menu at top-right of note)
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu: Menu, file) => {
         if (!file || !("extension" in file) || file.extension !== "md") return;
-
         this.addFileMenuSubmenu(menu);
       })
     );
   }
 
+  /**
+   * Add a grouped "Pubcopy" submenu to the editor right-click context menu.
+   *
+   * Uses the undocumented `setSubmenu()` API. Falls back to flat items
+   * if the API is unavailable.
+   */
   private addPubcopySubmenu(menu: Menu, editor: Editor): void {
-    // Try to use submenu (undocumented API)
     try {
       menu.addItem((item: MenuItem) => {
         item.setTitle("Pubcopy").setIcon("clipboard-copy");
@@ -72,7 +105,7 @@ export default class PubcopyPlugin extends Plugin {
         });
       });
     } catch {
-      // Fallback: flat menu items if setSubmenu is not available
+      // Fallback: flat menu items if setSubmenu() is not available
       menu.addItem((item: MenuItem) => {
         item
           .setTitle("Pubcopy: Copy for Medium")
@@ -88,6 +121,10 @@ export default class PubcopyPlugin extends Plugin {
     }
   }
 
+  /**
+   * Add a grouped "Pubcopy" submenu to the three-dot file menu.
+   * Always copies the full note (no selection concept in this menu).
+   */
   private addFileMenuSubmenu(menu: Menu): void {
     try {
       menu.addItem((item: MenuItem) => {
@@ -122,16 +159,21 @@ export default class PubcopyPlugin extends Plugin {
     }
   }
 
+  /**
+   * Copy from editor context. Uses selection if present, otherwise full note.
+   */
   private async copyForPlatform(
     editor: Editor,
     profile: PlatformProfile
   ): Promise<void> {
     const selection = editor.getSelection();
     const markdown = selection || editor.getValue();
-
     await this.runConversion(markdown, profile);
   }
 
+  /**
+   * Copy the full note content. Used by three-dot menu and as fallback.
+   */
   private async copyFullNoteForPlatform(
     profile: PlatformProfile
   ): Promise<void> {
@@ -140,11 +182,16 @@ export default class PubcopyPlugin extends Plugin {
       new Notice("Pubcopy: No active markdown file");
       return;
     }
-
     const markdown = view.editor.getValue();
     await this.runConversion(markdown, profile);
   }
 
+  /**
+   * Run the full conversion pipeline and write the result to clipboard.
+   *
+   * Catches both expected errors ({@link PubcopyError}) and unexpected
+   * errors, showing appropriate notices to the user.
+   */
   private async runConversion(
     markdown: string,
     profile: PlatformProfile
@@ -178,6 +225,7 @@ export default class PubcopyPlugin extends Plugin {
     }
   }
 
+  /** Load settings from disk, merging with defaults for any missing keys. */
   async loadSettings(): Promise<void> {
     this.settings = Object.assign(
       {},
@@ -186,6 +234,7 @@ export default class PubcopyPlugin extends Plugin {
     );
   }
 
+  /** Persist current settings to disk. */
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
   }
