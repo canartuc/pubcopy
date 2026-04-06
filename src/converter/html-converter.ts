@@ -73,7 +73,7 @@ const SANITIZE_SCHEMA = {
   },
   protocols: {
     href: ["http", "https", "mailto"],
-    src: ["http", "https", "data"],
+    src: ["http", "https"],
   },
   strip: ["script", "style", "iframe", "object", "embed", "form", "input", "textarea", "button"],
 };

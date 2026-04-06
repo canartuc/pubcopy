@@ -102,6 +102,17 @@ describe("html-converter", () => {
       expect(result.html).not.toContain("onclick");
     });
 
+    it("strips user-authored data:image/svg+xml URIs", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        '<img src="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9ImFsZXJ0KDEpIj48L3N2Zz4=" alt="xss">',
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      // data: URIs from user-authored content must be stripped by sanitizer
+      expect(result.html).not.toContain("data:image/svg+xml");
+    });
+
     it("strips javascript: protocol from hrefs", async () => {
       const app = createMockApp();
       const warnings = new WarningCollector();
