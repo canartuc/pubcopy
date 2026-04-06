@@ -211,6 +211,15 @@ function buildSizeAttrs(width?: number, height?: number): string {
  */
 function sanitizeSvg(svgContent: string): string {
   let sanitized = svgContent;
+  // Decode HTML entities first to prevent encoding-based bypasses
+  // (e.g., &#x6A;avascript: -> javascript:)
+  sanitized = sanitized.replace(/&#x([0-9a-fA-F]+);/g, (_m, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+  sanitized = sanitized.replace(/&#(\d+);/g, (_m, code: string) => String.fromCharCode(parseInt(code, 10)));
+  sanitized = sanitized.replace(/&amp;/g, "&");
+  sanitized = sanitized.replace(/&lt;/g, "<");
+  sanitized = sanitized.replace(/&gt;/g, ">");
+  sanitized = sanitized.replace(/&quot;/g, '"');
+  sanitized = sanitized.replace(/&apos;/g, "'");
   // Remove script elements and their content
   sanitized = sanitized.replace(/<script[\s\S]*?<\/script\s*>/gi, "");
   // Remove self-closing script tags

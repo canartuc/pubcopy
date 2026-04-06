@@ -91,6 +91,21 @@ describe("SVG sanitization", () => {
     expect(decoded).not.toContain("javascript:");
   });
 
+  it("strips entity-encoded javascript: URIs in SVG", async () => {
+    // &#x6A;avascript: decodes to javascript: — must be caught after entity decoding
+    const svgContent = '<svg xmlns="http://www.w3.org/2000/svg"><a href="&#x6A;avascript:alert(1)"><text>Click</text></a></svg>';
+    const app = createMockAppWithSvg("entity.svg", svgContent);
+    const warnings = new WarningCollector();
+
+    const result = await resolveImage(
+      app as never, "entity.svg", "test", undefined, "auto", warnings
+    );
+
+    const base64Match = result.match(/base64,([^"]+)/);
+    const decoded = atob(base64Match![1]);
+    expect(decoded).not.toContain("javascript:");
+  });
+
   it("strips animate elements that can inject javascript hrefs", async () => {
     const svgContent = '<svg xmlns="http://www.w3.org/2000/svg"><a href="#"><animate attributeName="href" to="javascript:alert(1)"/><text>Click</text></a></svg>';
     const app = createMockAppWithSvg("animate.svg", svgContent);
