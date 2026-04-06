@@ -25,12 +25,14 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkRehype from "remark-rehype";
+import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
 import type { App } from "obsidian";
 import type { PubcopySettings } from "../settings";
 import type { PlatformProfile } from "../platforms";
 import { WarningCollector } from "../utils/errors";
+import { escapeHtml } from "../utils/html";
 import { resolveImage, isImageFile } from "./image-handler";
 import { renderInlineMath, renderBlockMath } from "./math-renderer";
 
@@ -120,7 +122,7 @@ export async function convertToHtml(
     /==((?:[^=]|=[^=])+)==/g,
     (_match, content: string) => {
       elementCount++;
-      const safe = escapeHtmlCaption(content);
+      const safe = escapeHtml(content);
       return profile.supportsHighlight
         ? `<mark>${safe}</mark>`
         : `<strong>${safe}</strong>`;
@@ -169,7 +171,7 @@ export async function convertToHtml(
       caption,
       profile.name
     );
-    processed = processed.replace(match[0], imgTag);
+    processed = processed.replace(match[0], () => imgTag);
   }
 
   // 5. Mermaid: strip code blocks (not supported by Medium or Substack)
@@ -185,7 +187,7 @@ export async function convertToHtml(
   for (const match of blockMathMatches) {
     elementCount++;
     const rendered = await renderBlockMath(match[1].trim(), warnings);
-    processed = processed.replace(match[0], rendered);
+    processed = processed.replace(match[0], () => rendered);
   }
 
   // 7. Inline math: $...$ (single dollar, no newlines, not preceded by \ or $)
@@ -194,16 +196,18 @@ export async function convertToHtml(
   for (const match of inlineMathMatches) {
     elementCount++;
     const rendered = await renderInlineMath(match[1].trim(), warnings);
-    processed = processed.replace(match[0], rendered);
+    processed = processed.replace(match[0], () => rendered);
   }
 
   // === PARSE: Run the remark/rehype pipeline ===
-  // allowDangerousHtml is required because our pre-pass injects HTML tags
-  // rehype-sanitize strips anything dangerous after parsing
+  // allowDangerousHtml is required because our pre-pass injects HTML tags.
+  // rehype-raw parses those raw HTML strings into proper hast elements so
+  // rehype-sanitize can inspect and allowlist them correctly.
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeRaw)
     .use(rehypeSanitize, SANITIZE_SCHEMA)
     .use(rehypeStringify);
 
@@ -258,15 +262,15 @@ export async function convertToHtml(
         caption,
         profile.name
       );
-      html = html.replace(match[0], imgTag);
+      html = html.replace(match[0], () => imgTag);
     } else if (caption) {
       let captionHtml: string;
       if (profile.name === "Medium") {
-        captionHtml = `${match[0]}\n<p><em>${escapeHtmlCaption(caption)}</em></p>`;
+        captionHtml = `${match[0]}\n<p><em>${escapeHtml(caption)}</em></p>`;
       } else {
-        captionHtml = `<figure>${match[0]}<figcaption>${escapeHtmlCaption(caption)}</figcaption></figure>`;
+        captionHtml = `<figure>${match[0]}<figcaption>${escapeHtml(caption)}</figcaption></figure>`;
       }
-      html = html.replace(match[0], captionHtml);
+      html = html.replace(match[0], () => captionHtml);
     }
   }
 
@@ -289,7 +293,6 @@ function convertCallouts(text: string): string {
   let inCallout = false;
   let calloutType = "";
   let calloutContent: string[] = [];
-  let calloutDepth = 0;
 
   for (const line of lines) {
     const calloutMatch = line.match(
@@ -298,7 +301,6 @@ function convertCallouts(text: string): string {
 
     if (calloutMatch && !inCallout) {
       inCallout = true;
-      calloutDepth = calloutMatch[1].length;
       calloutType = calloutMatch[2].charAt(0).toUpperCase() + calloutMatch[2].slice(1);
       const firstLine = calloutMatch[3]?.trim() ?? "";
       if (firstLine) {
@@ -319,7 +321,6 @@ function convertCallouts(text: string): string {
         inCallout = false;
         calloutType = "";
         calloutContent = [];
-        calloutDepth = 0;
         result.push(line);
       }
       continue;
@@ -361,15 +362,6 @@ function flattenNestedLists(html: string, maxDepth: number): string {
     }
     return match;
   });
-}
-
-/** Escape HTML special characters in user content to prevent XSS. */
-function escapeHtmlCaption(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 /**

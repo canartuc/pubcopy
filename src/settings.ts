@@ -44,7 +44,7 @@ export const DEFAULT_SETTINGS: PubcopySettings = {
 /**
  * Settings tab rendered in Obsidian's Settings panel.
  *
- * Includes all configurable options and a Ko-fi donation button
+ * Includes all configurable options and a support/donation button
  * at the bottom of the page.
  */
 export class PubcopySettingTab extends PluginSettingTab {
@@ -133,17 +133,10 @@ export class PubcopySettingTab extends PluginSettingTab {
     });
 
     const link = donationDiv.createEl("a", {
-      href: "https://ko-fi.com/canartuc",
+      href: "https://www.canartuc.com/#/portal/support",
+      text: "Buy me a coffee",
     });
     link.setAttr("target", "_blank");
-
-    const kofiImg = link.createEl("img", {
-      attr: {
-        src: "https://storage.ko-fi.com/cdn/kofi2.png?v=6",
-        alt: "Buy Me a Coffee at ko-fi.com",
-      },
-    });
-    kofiImg.setAttr("height", "36");
-    kofiImg.setAttr("style", "border:0;height:36px;");
+    link.setAttr("style", "display:inline-block;padding:8px 16px;background:#6e5494;color:#fff;border-radius:6px;text-decoration:none;font-weight:bold;");
   }
 }
