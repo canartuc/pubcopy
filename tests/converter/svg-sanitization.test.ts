@@ -77,6 +77,34 @@ describe("SVG sanitization", () => {
     expect(decoded).not.toContain("javascript:");
   });
 
+  it("strips xlink:href javascript: URIs", async () => {
+    const svgContent = '<svg xmlns="http://www.w3.org/2000/svg"><a xlink:href="javascript:alert(1)"><text>Click</text></a></svg>';
+    const app = createMockAppWithSvg("xlink.svg", svgContent);
+    const warnings = new WarningCollector();
+
+    const result = await resolveImage(
+      app as never, "xlink.svg", "test", undefined, "auto", warnings
+    );
+
+    const base64Match = result.match(/base64,([^"]+)/);
+    const decoded = atob(base64Match![1]);
+    expect(decoded).not.toContain("javascript:");
+  });
+
+  it("strips animate elements that can inject javascript hrefs", async () => {
+    const svgContent = '<svg xmlns="http://www.w3.org/2000/svg"><a href="#"><animate attributeName="href" to="javascript:alert(1)"/><text>Click</text></a></svg>';
+    const app = createMockAppWithSvg("animate.svg", svgContent);
+    const warnings = new WarningCollector();
+
+    const result = await resolveImage(
+      app as never, "animate.svg", "test", undefined, "auto", warnings
+    );
+
+    const base64Match = result.match(/base64,([^"]+)/);
+    const decoded = atob(base64Match![1]);
+    expect(decoded).not.toContain("<animate");
+  });
+
   it("preserves safe SVG content", async () => {
     const svgContent = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="red"/><text x="50" y="50">Hello</text></svg>';
     const app = createMockAppWithSvg("safe.svg", svgContent);

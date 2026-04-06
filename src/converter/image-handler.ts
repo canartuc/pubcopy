@@ -219,10 +219,13 @@ function sanitizeSvg(svgContent: string): string {
   sanitized = sanitized.replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, "");
   // Remove event handler attributes (on*)
   sanitized = sanitized.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, "");
+  // Remove animate/set elements that can dynamically inject javascript: hrefs
+  sanitized = sanitized.replace(/<animate[\s\S]*?(?:<\/animate\s*>|\/>)/gi, "");
+  sanitized = sanitized.replace(/<set[\s\S]*?(?:<\/set\s*>|\/>)/gi, "");
   // Remove javascript: URIs in href/xlink:href attributes
-  sanitized = sanitized.replace(/(href\s*=\s*["'])javascript:[^"']*(["'])/gi, "$1#$2");
-  // Remove data: URIs in href attributes (can embed scripts)
-  sanitized = sanitized.replace(/(href\s*=\s*["'])data:[^"']*(["'])/gi, "$1#$2");
+  sanitized = sanitized.replace(/((?:xlink:)?href\s*=\s*["'])javascript:[^"']*(["'])/gi, "$1#$2");
+  // Remove data: URIs in href/xlink:href attributes (can embed scripts)
+  sanitized = sanitized.replace(/((?:xlink:)?href\s*=\s*["'])data:[^"']*(["'])/gi, "$1#$2");
   return sanitized;
 }
 
