@@ -72,13 +72,16 @@ function replaceOutsideCodeFences(
 ): string {
   return text.replace(pattern, (match: string, ...args: unknown[]) => {
     // The replacer args are: [...captures, offset, fullString, groups?]
-    // Find offset by locating the first number in args (always the offset).
-    const offset = args.find((a): a is number => typeof a === "number") as number;
+    // Find offset index by locating the first number in args.
+    const offsetIndex = args.findIndex((a): a is number => typeof a === "number");
+    const offset = args[offsetIndex] as number;
     if (isInsideCodeFence(offset, codeFences)) {
       return match;
     }
     if (typeof replacement === "function") {
-      return replacement(match, ...(args as string[]));
+      // Pass only the capture groups (everything before offset)
+      const captures = args.slice(0, offsetIndex) as string[];
+      return replacement(match, ...captures);
     }
     return replacement;
   });

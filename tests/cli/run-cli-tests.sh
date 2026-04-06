@@ -68,6 +68,9 @@ run_conversion() {
   local txt_out="${OUTPUT_PREFIX}_${suffix}.txt"
   local err_out="${OUTPUT_PREFIX}_${suffix}_err.txt"
 
+  # Clear stale output from previous runs
+  rm -f "$VAULT_PATH/$html_out" "$VAULT_PATH/$txt_out" "$VAULT_PATH/$err_out"
+
   local js="
 navigator.clipboard.write = function(data) {
   return data[0].getType('text/html').then(function(blob) {
@@ -87,9 +90,18 @@ app.workspace.openLinkText('${note}', '', false).then(function() {
 });
 'done'
 "
-  "$OBSIDIAN" eval vault="$VAULT_NAME" code="$js" 2>&1 > /dev/null || true
-  # Give Obsidian a moment to finish the async conversion + file write
-  sleep 2
+  "$OBSIDIAN" eval vault="$VAULT_NAME" code="$js" >/dev/null 2>&1 || return 1
+
+  # Poll for output files instead of sleeping a fixed duration
+  local i
+  for i in $(seq 1 20); do
+    [ -e "$VAULT_PATH/$err_out" ] && return 1
+    if [ -e "$VAULT_PATH/$html_out" ] || [ -e "$VAULT_PATH/$txt_out" ]; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
 }
 
 # Read a test output file from the vault.
@@ -174,9 +186,13 @@ done
 pass "Test fixtures deployed"
 
 # Reload plugin
-"$OBSIDIAN" plugin:reload vault="$VAULT_NAME" id=pubcopy 2>&1 > /dev/null || true
-sleep 1
-pass "Plugin reloaded"
+if "$OBSIDIAN" plugin:reload vault="$VAULT_NAME" id=pubcopy >/dev/null 2>&1; then
+  sleep 1
+  pass "Plugin reloaded"
+else
+  fail "Plugin reload" "Obsidian CLI failed to reload pubcopy"
+  exit 1
+fi
 
 # Verify plugin is loaded
 PLUGIN_CHECK=$(obsidian_eval "app.plugins.plugins['pubcopy'] ? 'loaded' : 'missing'")

@@ -119,8 +119,9 @@ describe("security", () => {
     it("preserves special replacement patterns in embedded content", async () => {
       const app = new App();
       const file = new TFile("notes/special.md");
-      // Content with $$ (not inline math due to double dollar) and backtick patterns
-      (app as App).vault.addMockFile("notes/special.md", "Match group $$1$$ and text");
+      // Literal $1 outside math delimiters — would be corrupted if
+      // a string replacer were used instead of a function replacer
+      (app as App).vault.addMockFile("notes/special.md", "Match group $1 and text");
       (app as App).metadataCache.addMockLookup("special", file);
 
       const result = await convert(
@@ -129,9 +130,9 @@ describe("security", () => {
         defaultSettings,
         app as never
       );
-      // The "1" from the embedded content must survive without being interpreted
+      // The literal "$1" must survive without being interpreted
       // as a regex backreference replacement pattern
-      expect(result.html).toContain("1");
+      expect(result.plainText).toContain("Match group $1 and text");
       expect(result.html).not.toContain("![[special]]");
     });
 

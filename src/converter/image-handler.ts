@@ -89,12 +89,15 @@ function validateImageContent(buffer: ArrayBuffer, ext: string): boolean {
         && bytes.length >= 12 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
     case "bmp":
       return bytes[0] === 0x42 && bytes[1] === 0x4D;
-    case "svg":
+    case "svg": {
+      const text = new TextDecoder().decode(bytes).trimStart();
+      return /^(?:<\?xml[\s\S]*?\?>\s*)?<svg\b/i.test(text);
+    }
     case "ico":
-      // SVG is text-based (validated by sanitizeSvg), ICO has variable magic
-      return true;
+      return bytes[0] === 0x00 && bytes[1] === 0x00
+        && bytes[2] === 0x01 && bytes[3] === 0x00;
     default:
-      return true;
+      return false;
   }
 }
 
