@@ -59,8 +59,6 @@ export class PubcopySettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    new Setting(containerEl).setName("General").setHeading();
-
     new Setting(containerEl)
       .setName("Strip frontmatter")
       .setDesc("Remove YAML frontmatter from output")
@@ -135,8 +133,8 @@ export class PubcopySettingTab extends PluginSettingTab {
     const link = donationDiv.createEl("a", {
       href: "https://www.canartuc.com/#/portal/support",
       text: "Buy me a coffee",
+      cls: "pubcopy-donation-link",
     });
     link.setAttr("target", "_blank");
-    link.setAttr("style", "display:inline-block;padding:8px 16px;background:#6e5494;color:#fff;border-radius:6px;text-decoration:none;font-weight:bold;");
   }
 }
