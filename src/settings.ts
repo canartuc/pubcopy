@@ -59,7 +59,7 @@ export class PubcopySettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "Pubcopy Settings" });
+    new Setting(containerEl).setName("Pubcopy settings").setHeading();
 
     new Setting(containerEl)
       .setName("Strip frontmatter")

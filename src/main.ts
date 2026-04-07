@@ -3,7 +3,7 @@
  *
  * Pubcopy plugin entry point for Obsidian.
  *
- * Registers two commands ("Copy for Medium", "Copy for Substack") accessible via:
+ * Registers two commands ("Copy for medium", "Copy for substack") accessible via:
  * - Command Palette (Cmd/Ctrl+P)
  * - Editor right-click context menu (grouped "Pubcopy" submenu)
  * - Three-dot "more options" menu (top-right of note)
@@ -11,7 +11,7 @@
  * The submenu uses Obsidian's undocumented `MenuItem.setSubmenu()` API
  * (used by community plugins like meta-bind and css-inserter). If that API
  * is removed in a future Obsidian version, the plugin falls back to flat
- * "Pubcopy: Copy for Medium" / "Pubcopy: Copy for Substack" menu items.
+ * "Pubcopy: Copy for medium" / "Pubcopy: Copy for substack" menu items.
  *
  * Selection behavior:
  * - Editor right-click: copies selected text if there's a selection, otherwise full note.
@@ -50,25 +50,25 @@ export default class PubcopyPlugin extends Plugin {
     // Command Palette commands (also enables hotkey assignment in Settings > Hotkeys)
     this.addCommand({
       id: "copy-for-medium",
-      name: "Copy for Medium",
+      name: "Copy for medium",
       editorCallback: (editor: Editor) => {
-        this.copyForPlatform(editor, MediumProfile);
+        void this.copyForPlatform(editor, MediumProfile);
       },
     });
 
     this.addCommand({
       id: "copy-for-substack",
-      name: "Copy for Substack",
+      name: "Copy for substack",
       editorCallback: (editor: Editor) => {
-        this.copyForPlatform(editor, SubstackProfile);
+        void this.copyForPlatform(editor, SubstackProfile);
       },
     });
 
     this.addCommand({
       id: "copy-as-markdown",
-      name: "Copy as Markdown",
+      name: "Copy as markdown",
       editorCallback: (editor: Editor) => {
-        this.copyForPlatform(editor, MarkdownProfile);
+        void this.copyForPlatform(editor, MarkdownProfile);
       },
     });
 
@@ -101,19 +101,19 @@ export default class PubcopyPlugin extends Plugin {
         const submenu = (item as MenuItem & { setSubmenu: () => Menu }).setSubmenu();
         submenu.addItem((sub: MenuItem) => {
           sub
-            .setTitle("Copy for Medium")
+            .setTitle("Copy for medium")
             .setIcon("file-text")
             .onClick(() => this.copyForPlatform(editor, MediumProfile));
         });
         submenu.addItem((sub: MenuItem) => {
           sub
-            .setTitle("Copy for Substack")
+            .setTitle("Copy for substack")
             .setIcon("mail")
             .onClick(() => this.copyForPlatform(editor, SubstackProfile));
         });
         submenu.addItem((sub: MenuItem) => {
           sub
-            .setTitle("Copy as Markdown")
+            .setTitle("Copy as markdown")
             .setIcon("copy")
             .onClick(() => this.copyForPlatform(editor, MarkdownProfile));
         });
@@ -122,19 +122,19 @@ export default class PubcopyPlugin extends Plugin {
       // Fallback: flat menu items if setSubmenu() is not available
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Pubcopy: Copy for Medium")
+          .setTitle("Pubcopy: Copy for medium")
           .setIcon("file-text")
           .onClick(() => this.copyForPlatform(editor, MediumProfile));
       });
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Pubcopy: Copy for Substack")
+          .setTitle("Pubcopy: Copy for substack")
           .setIcon("mail")
           .onClick(() => this.copyForPlatform(editor, SubstackProfile));
       });
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Pubcopy: Copy as Markdown")
+          .setTitle("Pubcopy: Copy as markdown")
           .setIcon("copy")
           .onClick(() => this.copyForPlatform(editor, MarkdownProfile));
       });
@@ -152,19 +152,19 @@ export default class PubcopyPlugin extends Plugin {
         const submenu = (item as MenuItem & { setSubmenu: () => Menu }).setSubmenu();
         submenu.addItem((sub: MenuItem) => {
           sub
-            .setTitle("Copy for Medium")
+            .setTitle("Copy for medium")
             .setIcon("file-text")
             .onClick(() => this.copyFullNoteForPlatform(MediumProfile));
         });
         submenu.addItem((sub: MenuItem) => {
           sub
-            .setTitle("Copy for Substack")
+            .setTitle("Copy for substack")
             .setIcon("mail")
             .onClick(() => this.copyFullNoteForPlatform(SubstackProfile));
         });
         submenu.addItem((sub: MenuItem) => {
           sub
-            .setTitle("Copy as Markdown")
+            .setTitle("Copy as markdown")
             .setIcon("copy")
             .onClick(() => this.copyFullNoteForPlatform(MarkdownProfile));
         });
@@ -172,19 +172,19 @@ export default class PubcopyPlugin extends Plugin {
     } catch {
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Pubcopy: Copy for Medium")
+          .setTitle("Pubcopy: Copy for medium")
           .setIcon("file-text")
           .onClick(() => this.copyFullNoteForPlatform(MediumProfile));
       });
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Pubcopy: Copy for Substack")
+          .setTitle("Pubcopy: Copy for substack")
           .setIcon("mail")
           .onClick(() => this.copyFullNoteForPlatform(SubstackProfile));
       });
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Pubcopy: Copy as Markdown")
+          .setTitle("Pubcopy: Copy as markdown")
           .setIcon("copy")
           .onClick(() => this.copyFullNoteForPlatform(MarkdownProfile));
       });
@@ -211,7 +211,7 @@ export default class PubcopyPlugin extends Plugin {
   ): Promise<void> {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view) {
-      new Notice("Pubcopy: No active markdown file");
+      new Notice("Pubcopy: No active markdown file.");
       return;
     }
     const markdown = view.editor.getValue();

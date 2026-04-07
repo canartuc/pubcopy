@@ -191,12 +191,14 @@ export async function convertToHtml(
   }
 
   // 7. Inline math: $...$ (single dollar, no newlines, not preceded by \ or $)
-  const inlineMathRegex = /(?<![\\$])\$([^\$\n]+?)\$(?!\$)/g;
+  //    Uses a capture group instead of lookbehind for iOS < 16.4 compatibility.
+  const inlineMathRegex = /(^|[^\\$])\$([^$\n]+?)\$(?!\$)/g;
   const inlineMathMatches = [...processed.matchAll(inlineMathRegex)];
   for (const match of inlineMathMatches) {
     elementCount++;
-    const rendered = await renderInlineMath(match[1].trim(), warnings);
-    processed = processed.replace(match[0], () => rendered);
+    const rendered = await renderInlineMath(match[2].trim(), warnings);
+    const prefix = match[1];
+    processed = processed.replace(match[0], () => prefix + rendered);
   }
 
   // === PARSE: Run the remark/rehype pipeline ===

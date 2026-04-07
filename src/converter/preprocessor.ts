@@ -137,8 +137,8 @@ export function preprocess(text: string, settings: PubcopySettings): string {
   if (settings.stripTags) {
     result = replaceOutsideCodeFences(
       result,
-      /(?<=\s|^)#[a-zA-Z][\w/]*/gm,
-      "",
+      /(^|\s)#[a-zA-Z][\w/]*/gm,
+      (_match: string, prefix: string) => prefix,
       codeFences
     );
   }
