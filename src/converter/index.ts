@@ -22,10 +22,17 @@ import type { App } from "obsidian";
 import type { PubcopySettings } from "../settings";
 import type { PlatformProfile } from "../platforms";
 import { WarningCollector } from "../utils/errors";
+import { PubcopyError } from "../utils/errors";
 import { preprocess } from "./preprocessor";
 import { resolveEmbeds } from "./embed-resolver";
 import { convertToHtml } from "./html-converter";
 import { processFootnotes } from "./footnote-processor";
+
+/**
+ * Maximum input size in characters (~2MB of text).
+ * Prevents memory exhaustion from extremely large notes or deeply resolved embeds.
+ */
+const MAX_INPUT_SIZE = 2_000_000;
 
 /** The complete result of converting a markdown note to platform-optimized HTML. */
 export interface ConversionResult {
@@ -57,10 +64,27 @@ export async function convert(
   settings: PubcopySettings,
   app: App
 ): Promise<ConversionResult> {
+  if (markdown.length > MAX_INPUT_SIZE) {
+    throw new PubcopyError(
+      "input",
+      "note",
+      `Note is too large (${(markdown.length / 1_000_000).toFixed(1)}MB). Maximum is ${MAX_INPUT_SIZE / 1_000_000}MB.`
+    );
+  }
+
   const warnings = new WarningCollector();
 
   // Stage 1: Resolve embeds (runs before preprocessing because it needs raw ![[]] syntax)
   let processed = await resolveEmbeds(markdown, app, warnings);
+
+  // Guard against embed expansion exceeding size limits
+  if (processed.length > MAX_INPUT_SIZE) {
+    throw new PubcopyError(
+      "input",
+      "note",
+      `Note is too large after resolving embeds (${(processed.length / 1_000_000).toFixed(1)}MB). Maximum is ${MAX_INPUT_SIZE / 1_000_000}MB.`
+    );
+  }
 
   // Stage 2: Preprocess (strip Obsidian-specific syntax)
   processed = preprocess(processed, settings);
@@ -112,11 +136,13 @@ function stripHtmlTags(html: string): string {
     .replace(/<\/li>/gi, "\n")
     .replace(/<hr\s*\/?>/gi, "\n---\n")
     .replace(/<[^>]+>/g, "")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_m, code: string) => String.fromCharCode(parseInt(code, 10)))
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

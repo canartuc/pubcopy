@@ -236,7 +236,7 @@ export async function resolveEmbeds(
       newVisited.add(embedKey);
       content = await resolveEmbeds(content, app, warnings, depth + 1, newVisited);
 
-      result = result.replace(fullMatch, content);
+      result = result.replace(fullMatch, () => content);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       warnings.add("embed", fileName, `Failed to resolve: ${msg}`);

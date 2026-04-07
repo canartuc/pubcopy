@@ -59,8 +59,10 @@ function isInsideCodeFence(pos: number, ranges: CodeFenceRange[]): boolean {
 /**
  * Run a regex replacement but skip matches that fall inside code fences.
  *
- * Uses the match offset (second-to-last argument in the replacer) to check
- * whether the match is protected. If inside a fence, returns the original match.
+ * Extracts the match offset from the replacer arguments to check whether the
+ * match is inside a protected code fence. The offset is always the first
+ * numeric argument after the capture groups, which we find by type rather than
+ * relying on a fragile index (which breaks with named groups in ES2018+).
  */
 function replaceOutsideCodeFences(
   text: string,
@@ -68,13 +70,18 @@ function replaceOutsideCodeFences(
   replacement: string | ((match: string, ...args: string[]) => string),
   codeFences: CodeFenceRange[]
 ): string {
-  return text.replace(pattern, (match, ...args) => {
-    const offset = args[args.length - 2] as number;
+  return text.replace(pattern, (match: string, ...args: unknown[]) => {
+    // The replacer args are: [...captures, offset, fullString, groups?]
+    // Find offset index by locating the first number in args.
+    const offsetIndex = args.findIndex((a): a is number => typeof a === "number");
+    const offset = args[offsetIndex] as number;
     if (isInsideCodeFence(offset, codeFences)) {
       return match;
     }
     if (typeof replacement === "function") {
-      return replacement(match, ...args);
+      // Pass only the capture groups (everything before offset)
+      const captures = args.slice(0, offsetIndex) as string[];
+      return replacement(match, ...captures);
     }
     return replacement;
   });
@@ -92,12 +99,15 @@ function replaceOutsideCodeFences(
  */
 export function preprocess(text: string, settings: PubcopySettings): string {
   let result = text;
-  const codeFences = findCodeFences(result);
 
   // Strip YAML frontmatter (must be at very start of file)
+  // This must run BEFORE computing code fence ranges, because removing
+  // the frontmatter shifts all subsequent character positions.
   if (settings.stripFrontmatter) {
     result = result.replace(/^---\n[\s\S]*?\n---\n?/, "");
   }
+
+  const codeFences = findCodeFences(result);
 
   // Strip Obsidian comments %%...%%
   result = replaceOutsideCodeFences(

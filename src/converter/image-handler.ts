@@ -68,6 +68,40 @@ function getMimeType(ext: string): string {
 }
 
 /**
+ * Validate that a binary buffer matches the expected image type by checking magic bytes.
+ * Returns true if the content appears valid for the given extension, or if the format
+ * cannot be validated (SVG, ICO). Returns false if magic bytes contradict the extension.
+ */
+function validateImageContent(buffer: ArrayBuffer, ext: string): boolean {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.length < 4) return false;
+
+  switch (ext) {
+    case "png":
+      return bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47;
+    case "jpg":
+    case "jpeg":
+      return bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF;
+    case "gif":
+      return bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46;
+    case "webp":
+      return bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+        && bytes.length >= 12 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+    case "bmp":
+      return bytes[0] === 0x42 && bytes[1] === 0x4D;
+    case "svg": {
+      const text = new TextDecoder().decode(bytes).trimStart();
+      return /^(?:<\?xml[\s\S]*?\?>\s*)?<svg\b/i.test(text);
+    }
+    case "ico":
+      return bytes[0] === 0x00 && bytes[1] === 0x00
+        && bytes[2] === 0x01 && bytes[3] === 0x00;
+    default:
+      return false;
+  }
+}
+
+/**
  * Check whether a filename has a recognized image extension.
  * Used by the embed resolver to distinguish `![[photo.png]]` from `![[note]]`.
  */
@@ -125,9 +159,14 @@ export async function resolveImage(
       } else {
         const binary = await app.vault.readBinary(file);
         const ext = getExtension(file.name);
-        const mime = getMimeType(ext);
-        const base64 = arrayBufferToBase64(binary);
-        imgTag = `<img src="data:${mime};base64,${base64}" alt="${escapeHtml(altText)}"${sizeAttrs}>`;
+        if (!validateImageContent(binary, ext)) {
+          warnings.add("image", src, "File content does not match image type");
+          imgTag = `<img src="${escapeHtml(src)}" alt="${escapeHtml(altText)}"${sizeAttrs}>`;
+        } else {
+          const mime = getMimeType(ext);
+          const base64 = arrayBufferToBase64(binary, ext);
+          imgTag = `<img src="data:${mime};base64,${base64}" alt="${escapeHtml(altText)}"${sizeAttrs}>`;
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -162,13 +201,63 @@ function buildSizeAttrs(width?: number, height?: number): string {
   return attrs;
 }
 
-/** Convert an ArrayBuffer to a base64-encoded string. */
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+/**
+ * Sanitize SVG content by removing dangerous elements and attributes.
+ *
+ * SVG files can contain `<script>`, `<foreignObject>`, event handlers
+ * (`onload`, `onerror`), and other executable content. When base64-encoded
+ * into data URIs, this content bypasses rehype-sanitize. This function
+ * strips known dangerous patterns before encoding.
+ */
+function sanitizeSvg(svgContent: string): string {
+  let sanitized = svgContent;
+  // Decode HTML entities first to prevent encoding-based bypasses
+  // (e.g., &#x6A;avascript: -> javascript:)
+  sanitized = sanitized.replace(/&#x([0-9a-fA-F]+);/g, (_m, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+  sanitized = sanitized.replace(/&#(\d+);/g, (_m, code: string) => String.fromCharCode(parseInt(code, 10)));
+  sanitized = sanitized.replace(/&amp;/g, "&");
+  sanitized = sanitized.replace(/&lt;/g, "<");
+  sanitized = sanitized.replace(/&gt;/g, ">");
+  sanitized = sanitized.replace(/&quot;/g, '"');
+  sanitized = sanitized.replace(/&apos;/g, "'");
+  // Remove script elements and their content
+  sanitized = sanitized.replace(/<script[\s\S]*?<\/script\s*>/gi, "");
+  // Remove self-closing script tags
+  sanitized = sanitized.replace(/<script[^>]*\/>/gi, "");
+  // Remove foreignObject elements (can embed arbitrary HTML)
+  sanitized = sanitized.replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, "");
+  // Remove event handler attributes (on*)
+  sanitized = sanitized.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, "");
+  // Remove animate/set elements that can dynamically inject javascript: hrefs
+  sanitized = sanitized.replace(/<animate[\s\S]*?(?:<\/animate\s*>|\/>)/gi, "");
+  sanitized = sanitized.replace(/<set[\s\S]*?(?:<\/set\s*>|\/>)/gi, "");
+  // Remove javascript: URIs in href/xlink:href attributes
+  sanitized = sanitized.replace(/((?:xlink:)?href\s*=\s*["'])javascript:[^"']*(["'])/gi, "$1#$2");
+  // Remove data: URIs in href/xlink:href attributes (can embed scripts)
+  sanitized = sanitized.replace(/((?:xlink:)?href\s*=\s*["'])data:[^"']*(["'])/gi, "$1#$2");
+  return sanitized;
+}
+
+/** Convert an ArrayBuffer to a base64-encoded string, with SVG sanitization. */
+function arrayBufferToBase64(buffer: ArrayBuffer, ext: string): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
   for (let i = 0; i < bytes.byteLength; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
+
+  // Sanitize SVG content before encoding to prevent script injection via data URIs
+  if (ext === "svg") {
+    const text = new TextDecoder().decode(bytes);
+    const sanitized = sanitizeSvg(text);
+    const sanitizedBytes = new TextEncoder().encode(sanitized);
+    let sanitizedBinary = "";
+    for (let i = 0; i < sanitizedBytes.byteLength; i++) {
+      sanitizedBinary += String.fromCharCode(sanitizedBytes[i]);
+    }
+    return btoa(sanitizedBinary);
+  }
+
   return btoa(binary);
 }
 
