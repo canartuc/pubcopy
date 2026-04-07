@@ -3,7 +3,7 @@
  *
  * Pubcopy plugin entry point for Obsidian.
  *
- * Registers two commands ("Copy for medium", "Copy for substack") accessible via:
+ * Registers commands ("Copy for medium", "Copy for substack", "Copy as Markdown") accessible via:
  * - Command Palette (Cmd/Ctrl+P)
  * - Editor right-click context menu (grouped "Pubcopy" submenu)
  * - Three-dot "more options" menu (top-right of note)
@@ -11,7 +11,7 @@
  * The submenu uses Obsidian's undocumented `MenuItem.setSubmenu()` API
  * (used by community plugins like meta-bind and css-inserter). If that API
  * is removed in a future Obsidian version, the plugin falls back to flat
- * "Pubcopy: Copy for medium" / "Pubcopy: Copy for substack" menu items.
+ * "Copy for medium" / "Copy for substack" menu items.
  *
  * Selection behavior:
  * - Editor right-click: copies selected text if there's a selection, otherwise full note.
@@ -66,7 +66,7 @@ export default class PubcopyPlugin extends Plugin {
 
     this.addCommand({
       id: "copy-as-markdown",
-      name: "Copy as markdown",
+      name: "Copy as Markdown",
       editorCallback: (editor: Editor) => {
         void this.copyForPlatform(editor, MarkdownProfile);
       },
@@ -113,7 +113,7 @@ export default class PubcopyPlugin extends Plugin {
         });
         submenu.addItem((sub: MenuItem) => {
           sub
-            .setTitle("Copy as markdown")
+            .setTitle("Copy as Markdown")
             .setIcon("copy")
             .onClick(() => this.copyForPlatform(editor, MarkdownProfile));
         });
@@ -122,19 +122,19 @@ export default class PubcopyPlugin extends Plugin {
       // Fallback: flat menu items if setSubmenu() is not available
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Pubcopy: Copy for medium")
+          .setTitle("Copy for medium")
           .setIcon("file-text")
           .onClick(() => this.copyForPlatform(editor, MediumProfile));
       });
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Pubcopy: Copy for substack")
+          .setTitle("Copy for substack")
           .setIcon("mail")
           .onClick(() => this.copyForPlatform(editor, SubstackProfile));
       });
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Pubcopy: Copy as markdown")
+          .setTitle("Copy as Markdown")
           .setIcon("copy")
           .onClick(() => this.copyForPlatform(editor, MarkdownProfile));
       });
@@ -164,7 +164,7 @@ export default class PubcopyPlugin extends Plugin {
         });
         submenu.addItem((sub: MenuItem) => {
           sub
-            .setTitle("Copy as markdown")
+            .setTitle("Copy as Markdown")
             .setIcon("copy")
             .onClick(() => this.copyFullNoteForPlatform(MarkdownProfile));
         });
@@ -172,19 +172,19 @@ export default class PubcopyPlugin extends Plugin {
     } catch {
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Pubcopy: Copy for medium")
+          .setTitle("Copy for medium")
           .setIcon("file-text")
           .onClick(() => this.copyFullNoteForPlatform(MediumProfile));
       });
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Pubcopy: Copy for substack")
+          .setTitle("Copy for substack")
           .setIcon("mail")
           .onClick(() => this.copyFullNoteForPlatform(SubstackProfile));
       });
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Pubcopy: Copy as markdown")
+          .setTitle("Copy as Markdown")
           .setIcon("copy")
           .onClick(() => this.copyFullNoteForPlatform(MarkdownProfile));
       });
@@ -211,7 +211,7 @@ export default class PubcopyPlugin extends Plugin {
   ): Promise<void> {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view) {
-      new Notice("Pubcopy: No active markdown file.");
+      new Notice("No active Markdown file.");
       return;
     }
     const markdown = view.editor.getValue();
@@ -249,10 +249,10 @@ export default class PubcopyPlugin extends Plugin {
       );
     } catch (err) {
       if (err instanceof PubcopyError) {
-        new Notice(`Pubcopy error: ${err.message}`);
+        new Notice(`Error: ${err.message}`);
       } else {
         const msg = err instanceof Error ? err.message : String(err);
-        new Notice(`Pubcopy: Unexpected error: ${msg}`);
+        new Notice(`Unexpected error: ${msg}`);
       }
     }
   }

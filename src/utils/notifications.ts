@@ -24,7 +24,7 @@ export function showSuccess(
   enabled: boolean
 ): void {
   if (!enabled) return;
-  new Notice(`Pubcopy: Copied for ${platform}`);
+  new Notice(`Copied for ${platform}.`);
 }
 
 /**

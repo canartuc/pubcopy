@@ -59,7 +59,7 @@ export class PubcopySettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    new Setting(containerEl).setName("Pubcopy settings").setHeading();
+    new Setting(containerEl).setName("General").setHeading();
 
     new Setting(containerEl)
       .setName("Strip frontmatter")
@@ -129,7 +129,7 @@ export class PubcopySettingTab extends PluginSettingTab {
 
     const donationDiv = containerEl.createDiv({ cls: "pubcopy-donation" });
     donationDiv.createEl("p", {
-      text: "If Pubcopy saves you time, consider supporting its development:",
+      text: "If this plugin saves you time, consider supporting its development:",
     });
 
     const link = donationDiv.createEl("a", {
