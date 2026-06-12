@@ -8,10 +8,28 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 export class Plugin {
+  app: App;
   manifest: { id: string; version: string; fundingUrl?: string | Record<string, string> } = {
     id: "pubcopy",
     version: "0.0.0",
   };
+  private data: unknown = null;
+
+  constructor(app?: App) {
+    this.app = app ?? new App();
+  }
+
+  addCommand(_command: unknown): void {}
+  addSettingTab(_tab: unknown): void {}
+  registerEvent(_eventRef: unknown): void {}
+
+  async loadData(): Promise<unknown> {
+    return this.data;
+  }
+
+  async saveData(data: unknown): Promise<void> {
+    this.data = data;
+  }
 }
 export class PluginSettingTab {
   containerEl = {
@@ -42,17 +60,40 @@ export class Dropdown {
 }
 
 export class Menu {
+  items: MenuItem[] = [];
+
   addItem(cb: (item: MenuItem) => void) {
-    cb(new MenuItem());
+    const item = new MenuItem();
+    this.items.push(item);
+    cb(item);
     return this;
+  }
+
+  /** Test helper: find a menu item by its title. */
+  findItem(title: string): MenuItem | undefined {
+    return this.items.find((i) => i.title === title);
   }
 }
 
 export class MenuItem {
-  setTitle(_title: string) { return this; }
-  setIcon(_icon: string) { return this; }
-  onClick(_cb: () => void) { return this; }
-  setSubmenu() { return new Menu(); }
+  title = "";
+  icon = "";
+  clickHandler: (() => unknown) | null = null;
+  submenu: Menu | null = null;
+
+  setTitle(title: string) { this.title = title; return this; }
+  setIcon(icon: string) { this.icon = icon; return this; }
+  onClick(cb: () => unknown) { this.clickHandler = cb; return this; }
+  setSubmenu() {
+    this.submenu = new Menu();
+    return this.submenu;
+  }
+
+  /** Test helper: invoke the click handler and await any returned promise. */
+  async click(): Promise<void> {
+    if (!this.clickHandler) throw new Error(`No click handler on "${this.title}"`);
+    await this.clickHandler();
+  }
 }
 
 export class App {
@@ -91,10 +132,27 @@ export class Vault {
 }
 
 export class Workspace {
-  on(_event: string, _callback: (...args: unknown[]) => void) {
-    return { event: _event };
+  private handlers: Map<string, Array<(...args: unknown[]) => void>> = new Map();
+  /** Test helper: set the view returned by getActiveViewOfType. */
+  activeView: MarkdownView | null = null;
+
+  on(event: string, callback: (...args: unknown[]) => void) {
+    const list = this.handlers.get(event) ?? [];
+    list.push(callback);
+    this.handlers.set(event, list);
+    return { event };
   }
-  getActiveViewOfType(_type: unknown) { return null; }
+
+  /** Test helper: fire a workspace event to registered handlers. */
+  trigger(event: string, ...args: unknown[]): void {
+    for (const handler of this.handlers.get(event) ?? []) {
+      handler(...args);
+    }
+  }
+
+  getActiveViewOfType(_type: unknown): MarkdownView | null {
+    return this.activeView;
+  }
 }
 
 export class MetadataCache {
@@ -123,8 +181,10 @@ export class TFile {
 
 export class MarkdownView {
   editor = {
-    getValue: () => "",
-    getSelection: () => "",
+    content: "",
+    selection: "",
+    getValue(): string { return this.content; },
+    getSelection(): string { return this.selection; },
   };
 }
 

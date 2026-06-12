@@ -49,11 +49,17 @@ export function processFootnotes(
     return html;
   }
 
+  // remark-gfm parses standard [^id] footnotes before this processor runs,
+  // so they arrive as anchor-based GFM markup. Convert that first; the
+  // legacy regex path below handles inline ^[text] footnotes (which GFM
+  // does not parse) and any pre-GFM-style markup.
+  let result = convertGfmFootnotes(html);
+
   const footnotes: Footnote[] = [];
   let counter = 0;
 
   // Extract footnote definitions: <p>[^id]: content</p>
-  let result = html.replace(
+  result = result.replace(
     /<p>\[\^(\w+)\]:\s*([\s\S]*?)<\/p>/g,
     (_match, id: string, content: string) => {
       counter++;
@@ -99,5 +105,43 @@ export function processFootnotes(
 /** Escape regex metacharacters in a string for safe use in `new RegExp()`. */
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Convert GFM-rendered footnote markup (post-sanitize) into Medium-friendly
+ * superscript references and a "Notes" endnotes section.
+ *
+ * After remark-gfm + rehype-sanitize, standard `[^id]` footnotes look like:
+ * - references: `<sup><a href="#user-content-fn-id">N</a></sup>`
+ * - section: `<h2>Footnotes</h2><ol><li><p>content
+ *   <a href="#user-content-fnref-id">↩</a></p></li>...</ol>`
+ *
+ * Medium has no anchor support on paste, so the anchors are dead weight:
+ * references become plain `<sup>N</sup>`, back-reference arrows are removed,
+ * and the heading is renamed to "Notes" behind an `<hr>` separator.
+ */
+function convertGfmFootnotes(html: string): string {
+  let result = html;
+  const hasGfmSection = result.includes("<h2>Footnotes</h2>");
+
+  // References -> plain superscript numbers
+  result = result.replace(
+    /<sup><a href="#user-content-fn-[^"]*">([^<]+)<\/a><\/sup>/g,
+    "<sup>$1</sup>"
+  );
+
+  // Back-reference arrows (optionally with a counter <sup>N</sup> when a
+  // footnote is referenced multiple times), including a leading space
+  result = result.replace(
+    / ?<a href="#user-content-fnref-[^"]*">↩(?:<sup>\d+<\/sup>)?<\/a>/g,
+    ""
+  );
+
+  // Rename the endnotes heading to match the legacy format
+  if (hasGfmSection) {
+    result = result.replace("<h2>Footnotes</h2>", "<hr>\n<h2>Notes</h2>");
+  }
+
+  return result;
 }
 

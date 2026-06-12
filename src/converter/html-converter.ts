@@ -35,6 +35,12 @@ import { WarningCollector } from "../utils/errors";
 import { escapeHtml } from "../utils/html";
 import { resolveImage, isImageFile } from "./image-handler";
 import { renderInlineMath, renderBlockMath } from "./math-renderer";
+import {
+  findProtectedRanges,
+  isProtected,
+  replaceOutsideProtected,
+  replaceAsyncOutsideProtected,
+} from "./protected-ranges";
 
 /**
  * Sanitization schema for rehype-sanitize.
@@ -113,12 +119,25 @@ export async function convertToHtml(
   let elementCount = 0;
 
   // === PRE-PASS: Handle Obsidian-specific elements before remark parsing ===
+  // Every transformation skips code fences and inline code spans so code
+  // examples containing Obsidian-like syntax survive intact. Helpers from
+  // protected-ranges recompute ranges per pass, so chained length-changing
+  // replacements stay correct.
 
-  // 1. Callouts: convert > [!type] to styled blockquotes with bold label
-  let processed = convertCallouts(markdown);
+  // 1. Mermaid: strip code blocks (not supported by Medium or Substack).
+  //    Runs first because it intentionally targets whole code fences.
+  const mermaidRegex = /```mermaid\n([\s\S]*?)```/g;
+  let processed = markdown.replace(mermaidRegex, () => {
+    warnings.add("mermaid", "diagram", "Mermaid diagrams not supported, skipped");
+    return "";
+  });
 
-  // 2. Highlights: ==text== -> <strong> (escaped to prevent XSS)
-  processed = processed.replace(
+  // 2. Callouts: convert > [!type] to styled blockquotes with bold label
+  processed = convertCallouts(processed);
+
+  // 3. Highlights: ==text== -> <strong> (escaped to prevent XSS)
+  processed = replaceOutsideProtected(
+    processed,
     /==((?:[^=]|=[^=])+)==/g,
     (_match, content: string) => {
       elementCount++;
@@ -129,9 +148,10 @@ export async function convertToHtml(
     }
   );
 
-  // 3. Task lists: convert checkbox syntax to unicode characters
+  // 4. Task lists: convert checkbox syntax to unicode characters
   //    (neither Medium nor Substack supports interactive checkboxes)
-  processed = processed.replace(
+  processed = replaceOutsideProtected(
+    processed,
     /^(\s*)- \[([ xX])\] (.+)$/gm,
     (_match, indent: string, check: string, text: string) => {
       elementCount++;
@@ -140,66 +160,63 @@ export async function convertToHtml(
     }
   );
 
-  // 4. Image embeds: ![[image.png]], ![[image.png|300]], ![[image.png|My caption]]
+  // 5. Image embeds: ![[image.png]], ![[image.png|300]], ![[image.png|My caption]]
   //    Pipe value is size if numeric, caption otherwise
   const imageEmbedRegex = /!\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g;
-  const imageMatches = [...processed.matchAll(imageEmbedRegex)];
-  for (const match of imageMatches) {
-    const fileName = match[1].trim();
-    if (!isImageFile(fileName)) continue;
+  processed = await replaceAsyncOutsideProtected(
+    processed,
+    imageEmbedRegex,
+    async (match) => {
+      const fileName = match[1].trim();
+      if (!isImageFile(fileName)) return match[0];
 
-    elementCount++;
-    const pipeValue = match[2]?.trim();
+      elementCount++;
+      const pipeValue = match[2]?.trim();
 
-    let sizeStr: string | undefined;
-    let caption: string | undefined;
-    if (pipeValue) {
-      if (/^\d+(?:x\d+)?$/.test(pipeValue)) {
-        sizeStr = pipeValue;
-      } else {
-        caption = pipeValue;
+      let sizeStr: string | undefined;
+      let caption: string | undefined;
+      if (pipeValue) {
+        if (/^\d+(?:x\d+)?$/.test(pipeValue)) {
+          sizeStr = pipeValue;
+        } else {
+          caption = pipeValue;
+        }
       }
+
+      return resolveImage(
+        app,
+        fileName,
+        fileName,
+        sizeStr,
+        settings.imageHandling,
+        warnings,
+        caption,
+        profile.name
+      );
     }
-
-    const imgTag = await resolveImage(
-      app,
-      fileName,
-      fileName,
-      sizeStr,
-      settings.imageHandling,
-      warnings,
-      caption,
-      profile.name
-    );
-    processed = processed.replace(match[0], () => imgTag);
-  }
-
-  // 5. Mermaid: strip code blocks (not supported by Medium or Substack)
-  const mermaidRegex = /```mermaid\n([\s\S]*?)```/g;
-  processed = processed.replace(mermaidRegex, (_match) => {
-    warnings.add("mermaid", "diagram", "Mermaid diagrams not supported, skipped");
-    return "";
-  });
+  );
 
   // 6. Block math: $$...$$ (must run before inline math to avoid false matches)
-  const blockMathRegex = /\$\$([\s\S]*?)\$\$/g;
-  const blockMathMatches = [...processed.matchAll(blockMathRegex)];
-  for (const match of blockMathMatches) {
-    elementCount++;
-    const rendered = await renderBlockMath(match[1].trim(), warnings);
-    processed = processed.replace(match[0], () => rendered);
-  }
+  processed = await replaceAsyncOutsideProtected(
+    processed,
+    /\$\$([\s\S]*?)\$\$/g,
+    async (match) => {
+      elementCount++;
+      return renderBlockMath(match[1].trim(), warnings);
+    }
+  );
 
   // 7. Inline math: $...$ (single dollar, no newlines, not preceded by \ or $)
   //    Uses a capture group instead of lookbehind for iOS < 16.4 compatibility.
-  const inlineMathRegex = /(^|[^\\$])\$([^$\n]+?)\$(?!\$)/g;
-  const inlineMathMatches = [...processed.matchAll(inlineMathRegex)];
-  for (const match of inlineMathMatches) {
-    elementCount++;
-    const rendered = await renderInlineMath(match[2].trim(), warnings);
-    const prefix = match[1];
-    processed = processed.replace(match[0], () => prefix + rendered);
-  }
+  processed = await replaceAsyncOutsideProtected(
+    processed,
+    /(^|[^\\$])\$([^$\n]+?)\$(?!\$)/g,
+    async (match) => {
+      elementCount++;
+      const rendered = await renderInlineMath(match[2].trim(), warnings);
+      return match[1] + rendered;
+    }
+  );
 
   // === PARSE: Run the remark/rehype pipeline ===
   // allowDangerousHtml is required because our pre-pass injects HTML tags.
@@ -242,39 +259,43 @@ export async function convertToHtml(
     html = html.replace(/<\/code><\/pre>/g, "</pre>");
   }
 
-  // Resolve local image paths and add captions for standard markdown images
+  // Resolve local image paths and add captions for standard markdown images.
+  // Offset-based rebuilding wraps each occurrence exactly once, even when
+  // identical captioned images repeat (no protected ranges apply to HTML).
   const mdImageRegex = /<img src="([^"]+)" alt="([^"]*)"([^>]*)>/g;
-  const mdImageMatches = [...html.matchAll(mdImageRegex)];
-  for (const match of mdImageMatches) {
-    const src = match[1];
-    const alt = match[2];
-    const isLocal = !src.startsWith("data:") && !src.startsWith("http:") && !src.startsWith("https:");
-    // Use alt text as caption only if it's meaningful (not just the filename)
-    const caption = (alt && alt !== src && !isImageFile(alt)) ? alt : undefined;
+  html = await replaceAsyncOutsideProtected(
+    html,
+    mdImageRegex,
+    async (match) => {
+      const src = match[1];
+      const alt = match[2];
+      const isLocal = !src.startsWith("data:") && !src.startsWith("http:") && !src.startsWith("https:");
+      // Use alt text as caption only if it's meaningful (not just the filename)
+      const caption = (alt && alt !== src && !isImageFile(alt)) ? alt : undefined;
 
-    if (isLocal) {
-      elementCount++;
-      const imgTag = await resolveImage(
-        app,
-        src,
-        alt,
-        undefined,
-        settings.imageHandling,
-        warnings,
-        caption,
-        profile.name
-      );
-      html = html.replace(match[0], () => imgTag);
-    } else if (caption) {
-      let captionHtml: string;
-      if (profile.name === "Medium") {
-        captionHtml = `${match[0]}\n<p><em>${escapeHtml(caption)}</em></p>`;
-      } else {
-        captionHtml = `<figure>${match[0]}<figcaption>${escapeHtml(caption)}</figcaption></figure>`;
+      if (isLocal) {
+        elementCount++;
+        return resolveImage(
+          app,
+          src,
+          alt,
+          undefined,
+          settings.imageHandling,
+          warnings,
+          caption,
+          profile.name
+        );
       }
-      html = html.replace(match[0], () => captionHtml);
-    }
-  }
+      if (caption) {
+        if (profile.name === "Medium") {
+          return `${match[0]}\n<p><em>${escapeHtml(caption)}</em></p>`;
+        }
+        return `<figure>${match[0]}<figcaption>${escapeHtml(caption)}</figcaption></figure>`;
+      }
+      return match[0];
+    },
+    []
+  );
 
   return { html, elementCount };
 }
@@ -285,23 +306,45 @@ export async function convertToHtml(
  * Transforms `> [!type] content` into `> **Type:** content`.
  * Handles foldable markers (`+`/`-`) by stripping them (content always visible).
  * Regular blockquotes (without `[!type]`) pass through unchanged.
+ * Lines inside code fences pass through unchanged, and a callout line
+ * directly following another callout starts a new block instead of leaking
+ * its `[!type]` marker into the previous one.
  *
  * @param text - Markdown text potentially containing callout syntax.
  * @returns Markdown with callouts converted to styled blockquotes.
  */
 function convertCallouts(text: string): string {
+  const ranges = findProtectedRanges(text);
   const lines = text.split("\n");
   const result: string[] = [];
   let inCallout = false;
   let calloutType = "";
   let calloutContent: string[] = [];
+  let offset = 0;
+
+  const flushCallout = (): void => {
+    const content = calloutContent.join("\n").trim();
+    result.push(`> **${calloutType}:** ${content}`);
+    result.push("");
+    inCallout = false;
+    calloutType = "";
+    calloutContent = [];
+  };
 
   for (const line of lines) {
-    const calloutMatch = line.match(
-      /^(>{1,})\s*\[!(\w+)\][+-]?\s*(.*)?$/
-    );
+    const lineStart = offset;
+    offset += line.length + 1;
+    const protectedLine = isProtected(lineStart, ranges);
 
-    if (calloutMatch && !inCallout) {
+    const calloutMatch = protectedLine
+      ? null
+      : line.match(/^(>{1,})\s*\[!(\w+)\][+-]?\s*(.*)?$/);
+
+    if (calloutMatch) {
+      if (inCallout) {
+        // A new callout starts directly after the previous one
+        flushCallout();
+      }
       inCallout = true;
       calloutType = calloutMatch[2].charAt(0).toUpperCase() + calloutMatch[2].slice(1);
       const firstLine = calloutMatch[3]?.trim() ?? "";
@@ -312,17 +355,11 @@ function convertCallouts(text: string): string {
     }
 
     if (inCallout) {
-      const continuationMatch = line.match(/^>{1,}\s?(.*)$/);
+      const continuationMatch = protectedLine ? null : line.match(/^>{1,}\s?(.*)$/);
       if (continuationMatch) {
         calloutContent.push(continuationMatch[1]);
       } else {
-        // End of callout block
-        const content = calloutContent.join("\n").trim();
-        result.push(`> **${calloutType}:** ${content}`);
-        result.push("");
-        inCallout = false;
-        calloutType = "";
-        calloutContent = [];
+        flushCallout();
         result.push(line);
       }
       continue;
@@ -333,8 +370,7 @@ function convertCallouts(text: string): string {
 
   // Flush any remaining callout at end of file
   if (inCallout && calloutContent.length > 0) {
-    const content = calloutContent.join("\n").trim();
-    result.push(`> **${calloutType}:** ${content}`);
+    flushCallout();
   }
 
   return result.join("\n");

@@ -7,6 +7,7 @@
  * - Command Palette (Cmd/Ctrl+P)
  * - Editor right-click context menu (grouped "Pubcopy" submenu)
  * - Three-dot "more options" menu (top-right of note)
+ * - File explorer right-click menu (works without opening the note)
  *
  * The submenu uses Obsidian's undocumented `MenuItem.setSubmenu()` API
  * (used by community plugins like meta-bind and css-inserter). If that API
@@ -15,10 +16,12 @@
  *
  * Selection behavior:
  * - Editor right-click: copies selected text if there's a selection, otherwise full note.
- * - Three-dot menu and Command Palette: always copy the full note.
+ * - File menus and Command Palette: always copy the full note. File menus
+ *   read the clicked file directly from the vault, so the copied content is
+ *   always the file the user clicked — not whichever note happens to be active.
  */
 
-import { Editor, MarkdownView, Menu, MenuItem, Notice, Plugin } from "obsidian";
+import { Editor, Menu, MenuItem, Notice, Plugin, TFile } from "obsidian";
 import {
   PubcopySettings,
   PubcopySettingTab,
@@ -79,11 +82,13 @@ export default class PubcopyPlugin extends Plugin {
       })
     );
 
-    // File menu (three-dot "more options" menu at top-right of note)
+    // File menu: three-dot "more options" menu AND file explorer right-click.
+    // The clicked file is captured so the copy always targets it, even when
+    // it is not the active note (or no note is open at all).
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu: Menu, file) => {
-        if (!file || !("extension" in file) || file.extension !== "md") return;
-        this.addFileMenuSubmenu(menu);
+        if (!(file instanceof TFile) || file.extension !== "md") return;
+        this.addFileMenuSubmenu(menu, file);
       })
     );
   }
@@ -142,10 +147,10 @@ export default class PubcopyPlugin extends Plugin {
   }
 
   /**
-   * Add a grouped "Pubcopy" submenu to the three-dot file menu.
-   * Always copies the full note (no selection concept in this menu).
+   * Add a grouped "Pubcopy" submenu to the file menu (three-dot menu or
+   * file explorer right-click). Copies the clicked file's full content.
    */
-  private addFileMenuSubmenu(menu: Menu): void {
+  private addFileMenuSubmenu(menu: Menu, file: TFile): void {
     try {
       menu.addItem((item: MenuItem) => {
         item.setTitle("Pubcopy").setIcon("clipboard-copy");
@@ -154,19 +159,19 @@ export default class PubcopyPlugin extends Plugin {
           sub
             .setTitle("Copy for medium")
             .setIcon("file-text")
-            .onClick(() => this.copyFullNoteForPlatform(MediumProfile));
+            .onClick(() => this.copyFileForPlatform(file, MediumProfile));
         });
         submenu.addItem((sub: MenuItem) => {
           sub
             .setTitle("Copy for substack")
             .setIcon("mail")
-            .onClick(() => this.copyFullNoteForPlatform(SubstackProfile));
+            .onClick(() => this.copyFileForPlatform(file, SubstackProfile));
         });
         submenu.addItem((sub: MenuItem) => {
           sub
             .setTitle("Copy as Markdown")
             .setIcon("copy")
-            .onClick(() => this.copyFullNoteForPlatform(MarkdownProfile));
+            .onClick(() => this.copyFileForPlatform(file, MarkdownProfile));
         });
       });
     } catch {
@@ -174,19 +179,19 @@ export default class PubcopyPlugin extends Plugin {
         item
           .setTitle("Copy for medium")
           .setIcon("file-text")
-          .onClick(() => this.copyFullNoteForPlatform(MediumProfile));
+          .onClick(() => this.copyFileForPlatform(file, MediumProfile));
       });
       menu.addItem((item: MenuItem) => {
         item
           .setTitle("Copy for substack")
           .setIcon("mail")
-          .onClick(() => this.copyFullNoteForPlatform(SubstackProfile));
+          .onClick(() => this.copyFileForPlatform(file, SubstackProfile));
       });
       menu.addItem((item: MenuItem) => {
         item
           .setTitle("Copy as Markdown")
           .setIcon("copy")
-          .onClick(() => this.copyFullNoteForPlatform(MarkdownProfile));
+          .onClick(() => this.copyFileForPlatform(file, MarkdownProfile));
       });
     }
   }
@@ -204,17 +209,22 @@ export default class PubcopyPlugin extends Plugin {
   }
 
   /**
-   * Copy the full note content. Used by three-dot menu and as fallback.
+   * Copy a specific file's full content, read directly from the vault.
+   * Used by the file menu (three-dot and file explorer), so it works even
+   * when the file is not the active note.
    */
-  private async copyFullNoteForPlatform(
+  private async copyFileForPlatform(
+    file: TFile,
     profile: PlatformProfile
   ): Promise<void> {
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!view) {
-      new Notice("No active Markdown file.");
+    let markdown: string;
+    try {
+      markdown = await this.app.vault.cachedRead(file);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      new Notice(`Could not read "${file.name}": ${msg}`);
       return;
     }
-    const markdown = view.editor.getValue();
     await this.runConversion(markdown, profile);
   }
 

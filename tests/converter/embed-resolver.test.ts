@@ -103,4 +103,51 @@ describe("embed-resolver", () => {
     expect(result).toContain("Target paragraph");
     expect(result).not.toContain("^my-block");
   });
+
+  describe("regressions", () => {
+    it("matches block IDs exactly, not as substrings", async () => {
+      const app = createMockApp();
+      const file = new TFile("notes/blocks.md");
+      app.vault.addMockFile(
+        "notes/blocks.md",
+        "Wrong line ^abcd\nRight line ^abc\nOther ^abc-extra"
+      );
+      app.metadataCache.addMockLookup("blocks", file);
+
+      const warnings = new WarningCollector();
+      const result = await resolveEmbeds("![[blocks#^abc]]", app as never, warnings);
+      expect(result).toContain("Right line");
+      expect(result).not.toContain("Wrong line");
+    });
+
+    it("records a warning when the embed depth limit is reached", async () => {
+      const app = createMockApp();
+      // Build a 7-deep chain: n0 embeds n1 embeds n2 ... (MAX depth is 5)
+      for (let i = 0; i < 7; i++) {
+        const file = new TFile(`n${i}.md`);
+        app.vault.addMockFile(`n${i}.md`, `Level ${i} ![[n${i + 1}]]`);
+        app.metadataCache.addMockLookup(`n${i}`, file);
+      }
+      const warnings = new WarningCollector();
+      await resolveEmbeds("![[n0]]", app as never, warnings);
+      expect(
+        warnings.getWarnings().some((w) => w.reason.toLowerCase().includes("depth"))
+      ).toBe(true);
+    });
+
+    it("resolves the same embed appearing twice", async () => {
+      const app = createMockApp();
+      const file = new TFile("twice.md");
+      app.vault.addMockFile("twice.md", "Repeated content");
+      app.metadataCache.addMockLookup("twice", file);
+
+      const warnings = new WarningCollector();
+      const result = await resolveEmbeds(
+        "A ![[twice]] B ![[twice]] C",
+        app as never,
+        warnings
+      );
+      expect(result).toBe("A Repeated content B Repeated content C");
+    });
+  });
 });

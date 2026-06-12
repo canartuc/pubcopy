@@ -122,13 +122,30 @@ export async function convert(
   };
 }
 
+/** Named HTML entities decoded in plain-text output. */
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+};
+
 /**
  * Strip HTML tags and decode entities to produce a plain-text version.
  *
  * Used as the `text/plain` clipboard entry so pasting into plain-text
  * editors produces readable content instead of raw HTML.
+ *
+ * Entities are decoded in a SINGLE pass so sequences like `&amp;lt;`
+ * (the literal text "&lt;") are never double-decoded, and numeric
+ * references use `String.fromCodePoint` so astral-plane characters
+ * (e.g. emoji) survive intact.
+ *
+ * Exported for direct testing.
  */
-function stripHtmlTags(html: string): string {
+export function stripHtmlTags(html: string): string {
   return html
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/p>/gi, "\n\n")
@@ -136,13 +153,14 @@ function stripHtmlTags(html: string): string {
     .replace(/<\/li>/gi, "\n")
     .replace(/<hr\s*\/?>/gi, "\n---\n")
     .replace(/<[^>]+>/g, "")
-    .replace(/&#x([0-9a-fA-F]+);/g, (_m, hex: string) => String.fromCharCode(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_m, code: string) => String.fromCharCode(parseInt(code, 10)))
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
+    .replace(
+      /&(?:#x([0-9a-fA-F]+)|#(\d+)|(amp|lt|gt|quot|apos|nbsp));/g,
+      (_m, hex: string | undefined, dec: string | undefined, named: string | undefined) => {
+        if (hex) return String.fromCodePoint(parseInt(hex, 16));
+        if (dec) return String.fromCodePoint(parseInt(dec, 10));
+        return NAMED_ENTITIES[named ?? ""] ?? _m;
+      }
+    )
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

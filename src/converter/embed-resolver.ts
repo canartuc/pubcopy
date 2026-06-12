@@ -126,15 +126,20 @@ function extractHeadingSection(content: string, heading: string): string {
 /**
  * Extract a specific block (paragraph with a `^block-id` suffix) from a note.
  *
+ * The block ID must match exactly at the end of the line (`^abc` does not
+ * match a line ending in `^abcd`).
+ *
  * @param content - Full note content.
  * @param blockId - The block identifier (without `^` prefix).
  * @returns The block text with the `^block-id` stripped, or empty string if not found.
  */
 function extractBlock(content: string, blockId: string): string {
+  const escaped = blockId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(?:^|\\s)\\^${escaped}\\s*$`);
   const lines = content.split("\n");
   for (const line of lines) {
-    if (line.includes(`^${blockId}`)) {
-      return line.replace(/ ?\^[\w-]+$/, "").trim();
+    if (pattern.test(line)) {
+      return line.replace(/ ?\^[\w-]+\s*$/, "").trim();
     }
   }
   return "";
@@ -161,10 +166,23 @@ export async function resolveEmbeds(
   depth: number = 0,
   visited: Set<string> = new Set()
 ): Promise<string> {
-  if (depth >= MAX_EMBED_DEPTH) return text;
-
   const embedRegex = /!\[\[([^\]]+)\]\]/g;
   const matches = [...text.matchAll(embedRegex)];
+
+  if (depth >= MAX_EMBED_DEPTH) {
+    // Warn only if a resolvable (non-image) embed is being left behind
+    const unresolved = matches.find(
+      (m) => !isImageFile(m[1].split("|")[0].split("#")[0].trim())
+    );
+    if (unresolved) {
+      warnings.add(
+        "embed",
+        unresolved[1],
+        `Maximum embed depth (${MAX_EMBED_DEPTH}) reached; deeper embeds left unresolved`
+      );
+    }
+    return text;
+  }
 
   let result = text;
 
@@ -216,7 +234,7 @@ export async function resolveEmbeds(
         continue;
       }
 
-      let content = await app.vault.read(file);
+      let content = await app.vault.cachedRead(file);
 
       // Extract the specific section or block if referenced
       if (parsed.heading) {

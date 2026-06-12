@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { convert } from "../../src/converter/index";
+import { convert, stripHtmlTags } from "../../src/converter/index";
 import { MediumProfile } from "../../src/platforms/medium";
 import { SubstackProfile } from "../../src/platforms/substack";
 import { MarkdownProfile } from "../../src/platforms/markdown";
@@ -140,6 +140,25 @@ describe("convert() integration", () => {
       );
       expect(result.html).not.toContain("<pre><code");
       expect(result.html).toContain("<pre");
+    });
+  });
+
+  describe("entity decoding (regression)", () => {
+    it("does not double-decode entity-of-an-entity sequences", () => {
+      // &#x26;lt; means the literal text "&lt;" — it must NOT become "<"
+      expect(stripHtmlTags("<p>&#x26;lt;</p>")).toBe("&lt;");
+      expect(stripHtmlTags("<p>&amp;lt;</p>")).toBe("&lt;");
+      expect(stripHtmlTags("<p>&amp;amp;</p>")).toBe("&amp;");
+    });
+
+    it("decodes astral-plane numeric entities correctly", () => {
+      expect(stripHtmlTags("<p>&#128512;</p>")).toBe("😀");
+      expect(stripHtmlTags("<p>&#x1F600;</p>")).toBe("😀");
+    });
+
+    it("decodes basic named entities", () => {
+      expect(stripHtmlTags("<p>A &amp; B &lt;tag&gt; &quot;q&quot; &apos;a&apos;</p>"))
+        .toBe("A & B <tag> \"q\" 'a'");
     });
   });
 

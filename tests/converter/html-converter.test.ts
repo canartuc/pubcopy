@@ -266,4 +266,130 @@ describe("html-converter", () => {
       expect(result.html).toContain("<pre");
     });
   });
+
+  describe("code protection in pre-pass (regression)", () => {
+    it("does not render inline math inside code fences", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "```bash\necho $HOME costs $5\n```",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).not.toContain("katex");
+      expect(result.html).toContain("$HOME costs $5");
+    });
+
+    it("does not render block math inside code fences", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "```\n$$x^2$$\n```",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).not.toContain("katex");
+      expect(result.html).toContain("$$x^2$$");
+    });
+
+    it("does not convert highlights inside code fences", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "```\n==not a highlight==\n```",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain("==not a highlight==");
+      expect(result.html).not.toContain("<strong>not a highlight</strong>");
+    });
+
+    it("does not convert task lists inside code fences", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "```\n- [ ] todo item\n```",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain("- [ ] todo item");
+      expect(result.html).not.toContain("☐");
+    });
+
+    it("does not convert callouts inside code fences", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "```\n> [!note] literal callout\n```",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain("[!note]");
+      expect(result.html).not.toContain("<strong>Note:</strong>");
+    });
+
+    it("does not resolve image embeds inside code fences", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "```\n![[image.png]]\n```",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain("![[image.png]]");
+      expect(result.html).not.toContain("<img");
+    });
+
+    it("does not render math inside inline code spans", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "Use `$a$ and $b$` syntax",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).not.toContain("katex");
+      expect(result.html).toContain("<code>$a$ and $b$</code>");
+    });
+
+    it("still renders math outside code", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "Inline $x+1$ math\n\n```\n$y$ stays\n```",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain("katex");
+      expect(result.html).toContain("$y$ stays");
+    });
+  });
+
+  describe("image captions (regression)", () => {
+    it("wraps duplicate captioned remote images exactly once each (Medium)", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const md = "![A nice pic](https://example.com/pic.png)\n\n![A nice pic](https://example.com/pic.png)";
+      const result = await convertToHtml(md, MediumProfile, defaultSettings, app as never, warnings);
+      const imgs = result.html.match(/<img /g) ?? [];
+      // Each image must be immediately followed by exactly one caption
+      const wrapped = result.html.match(/<img [^>]*>\n<p><em>A nice pic<\/em><\/p>(?!\n<p><em>)/g) ?? [];
+      expect(imgs.length).toBe(2);
+      expect(wrapped.length).toBe(2);
+    });
+
+    it("never nests figure elements for duplicate captioned images (Substack)", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const md = "![A nice pic](https://example.com/pic.png)\n\n![A nice pic](https://example.com/pic.png)";
+      const result = await convertToHtml(md, SubstackProfile, defaultSettings, app as never, warnings);
+      expect(result.html).not.toContain("<figure><figure>");
+      const captions = result.html.match(/<figcaption>A nice pic<\/figcaption>/g) ?? [];
+      expect(captions.length).toBe(2);
+    });
+  });
+
+  describe("consecutive callouts (regression)", () => {
+    it("renders two consecutive callouts as separate blockquotes", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const md = "> [!note] First note\n> [!warning] Second warning";
+      const result = await convertToHtml(md, MediumProfile, defaultSettings, app as never, warnings);
+      expect(result.html).toContain("<strong>Note:</strong>");
+      expect(result.html).toContain("<strong>Warning:</strong>");
+      expect(result.html).not.toContain("[!warning]");
+    });
+  });
 });

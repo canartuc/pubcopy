@@ -101,4 +101,74 @@ tags: [test]
     const result = preprocess(input, defaultSettings);
     expect(result).toBe("Line 1\n\nLine 2");
   });
+
+  describe("embed preservation (regression)", () => {
+    it("preserves plain image embeds when stripping wikilinks", () => {
+      const input = "Hello ![[image.png]] world";
+      const result = preprocess(input, defaultSettings);
+      expect(result).toBe("Hello ![[image.png]] world");
+    });
+
+    it("preserves sized image embeds when stripping wikilinks", () => {
+      const input = "Hello ![[image.png|300]] world";
+      const result = preprocess(input, defaultSettings);
+      expect(result).toBe("Hello ![[image.png|300]] world");
+    });
+
+    it("preserves captioned image embeds when stripping wikilinks", () => {
+      const input = "![[photo.jpg|My caption]]";
+      const result = preprocess(input, defaultSettings);
+      expect(result).toBe("![[photo.jpg|My caption]]");
+    });
+
+    it("preserves heading embeds while converting heading wikilinks", () => {
+      const input = "![[Note#Section]] and [[Note#Section]]";
+      const result = preprocess(input, defaultSettings);
+      expect(result).toBe("![[Note#Section]] and Section");
+    });
+
+    it("converts adjacent wikilinks with no separator", () => {
+      const input = "[[alpha]][[beta]]";
+      const result = preprocess(input, defaultSettings);
+      expect(result).toBe("alphabeta");
+    });
+  });
+
+  describe("code protection (regression)", () => {
+    it("protects fence content even when earlier replacements shift offsets", () => {
+      const input =
+        "%%this is a much longer obsidian comment that shifts offsets considerably%%\n\n" +
+        "```\ncode with #insidetag and [[wikilink]]\n```";
+      const result = preprocess(input, defaultSettings);
+      expect(result).toContain("#insidetag");
+      expect(result).toContain("[[wikilink]]");
+    });
+
+    it("protects inline code spans from tag stripping", () => {
+      const input = "Use `#channel` to join";
+      const result = preprocess(input, defaultSettings);
+      expect(result).toBe("Use `#channel` to join");
+    });
+
+    it("protects inline code spans from wikilink conversion", () => {
+      const input = "Type `[[link]]` to create a link";
+      const result = preprocess(input, defaultSettings);
+      expect(result).toBe("Type `[[link]]` to create a link");
+    });
+
+    it("still strips syntax outside inline code on the same line", () => {
+      const input = "Real [[Page]] and literal `[[link]]` here #tag";
+      const result = preprocess(input, defaultSettings);
+      expect(result).toBe("Real Page and literal `[[link]]` here");
+    });
+  });
+
+  describe("frontmatter edge cases (regression)", () => {
+    it("strips CRLF frontmatter", () => {
+      const input = "---\r\ntitle: Test\r\n---\r\n# Hello";
+      const result = preprocess(input, defaultSettings);
+      expect(result).not.toContain("title: Test");
+      expect(result).toContain("# Hello");
+    });
+  });
 });
