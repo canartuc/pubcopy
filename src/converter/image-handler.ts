@@ -15,6 +15,7 @@
  */
 
 import type { App } from "obsidian";
+import { arrayBufferToBase64 } from "obsidian";
 import type { ImageHandling } from "../settings";
 import { WarningCollector } from "../utils/errors";
 import { escapeHtml } from "../utils/html";
@@ -164,7 +165,7 @@ export async function resolveImage(
           imgTag = `<img src="${escapeHtml(src)}" alt="${escapeHtml(altText)}"${sizeAttrs}>`;
         } else {
           const mime = getMimeType(ext);
-          const base64 = arrayBufferToBase64(binary, ext);
+          const base64 = encodeImageBase64(binary, ext);
           imgTag = `<img src="data:${mime};base64,${base64}" alt="${escapeHtml(altText)}"${sizeAttrs}>`;
         }
       }
@@ -238,26 +239,17 @@ function sanitizeSvg(svgContent: string): string {
   return sanitized;
 }
 
-/** Convert an ArrayBuffer to a base64-encoded string, with SVG sanitization. */
-function arrayBufferToBase64(buffer: ArrayBuffer, ext: string): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-
-  // Sanitize SVG content before encoding to prevent script injection via data URIs
+/**
+ * Base64-encode image bytes using Obsidian's optimized helper,
+ * sanitizing SVG content first to prevent script injection via data URIs.
+ */
+function encodeImageBase64(buffer: ArrayBuffer, ext: string): string {
   if (ext === "svg") {
-    const text = new TextDecoder().decode(bytes);
+    const text = new TextDecoder().decode(buffer);
     const sanitized = sanitizeSvg(text);
     const sanitizedBytes = new TextEncoder().encode(sanitized);
-    let sanitizedBinary = "";
-    for (let i = 0; i < sanitizedBytes.byteLength; i++) {
-      sanitizedBinary += String.fromCharCode(sanitizedBytes[i]);
-    }
-    return btoa(sanitizedBinary);
+    return arrayBufferToBase64(sanitizedBytes.buffer);
   }
-
-  return btoa(binary);
+  return arrayBufferToBase64(buffer);
 }
 

@@ -25,25 +25,24 @@
   "author": "canartuc",
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=24.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.0.0",
-    "@typescript-eslint/parser": "^8.0.0",
-    "builtin-modules": "^4.0.0",
-    "esbuild": "^0.28.0",
-    "eslint": "^9.0.0",
-    "eslint-plugin-obsidianmd": "^0.1.9",
-    "jsdom": "^29.0.1",
-    "obsidian": "^1.12.0",
-    "tslib": "^2.7.0",
-    "typedoc": "^0.28.18",
-    "typescript": "^5.6.0",
-    "vitest": "^3.0.0"
+    "@types/node": "^24.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.61.0",
+    "@typescript-eslint/parser": "^8.61.0",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.5.0",
+    "eslint-plugin-obsidianmd": "^0.3.0",
+    "jsdom": "^29.1.1",
+    "obsidian": "^1.13.1",
+    "tslib": "^2.8.1",
+    "typedoc": "^0.28.19",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
   },
   "dependencies": {
-    "katex": "^0.16.0",
+    "katex": "^0.17.0",
     "rehype-raw": "^7.0.0",
     "rehype-sanitize": "^6.0.0",
     "rehype-stringify": "^10.0.0",

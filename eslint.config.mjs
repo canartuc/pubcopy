@@ -1,50 +1,25 @@
-import tsPlugin from "@typescript-eslint/eslint-plugin";
-import tsParser from "@typescript-eslint/parser";
 import obsidianmd from "eslint-plugin-obsidianmd";
 
 export default [
+  ...obsidianmd.configs.recommended,
   {
     files: ["src/**/*.ts"],
     languageOptions: {
-      parser: tsParser,
       parserOptions: {
-        ecmaVersion: 2022,
-        sourceType: "module",
-        projectService: {
-          allowDefaultProject: ["eslint.config.mjs", "manifest.json"],
-        },
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
-    plugins: {
-      "@typescript-eslint": tsPlugin,
-      obsidianmd,
-    },
     rules: {
-      ...tsPlugin.configs.recommended.rules,
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+      // Type-aware safety rules matching the Obsidian community plugin scanner
+      "@typescript-eslint/no-unsafe-assignment": "error",
+      "@typescript-eslint/no-unsafe-member-access": "error",
+      "@typescript-eslint/no-unsafe-call": "error",
+      "@typescript-eslint/no-unsafe-return": "error",
+      "@typescript-eslint/no-unsafe-argument": "error",
       "no-eval": "error",
       "no-implied-eval": "error",
-      ...obsidianmd.configs.recommended,
-    },
-  },
-  {
-    files: ["manifest.json"],
-    languageOptions: {
-      parser: tsParser,
-      parserOptions: {
-        projectService: {
-          allowDefaultProject: ["manifest.json"],
-        },
-        tsconfigRootDir: import.meta.dirname,
-        extraFileExtensions: [".json"],
-      },
-    },
-    plugins: {
-      obsidianmd,
-    },
-    rules: {
-      "obsidianmd/validate-manifest": "error",
     },
   },
   {

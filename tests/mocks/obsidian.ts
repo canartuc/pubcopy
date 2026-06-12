@@ -3,7 +3,16 @@ export class Notice {
   constructor(public message: string, public timeout?: number) {}
 }
 
-export class Plugin {}
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  return Buffer.from(buffer).toString("base64");
+}
+
+export class Plugin {
+  manifest: { id: string; version: string; fundingUrl?: string | Record<string, string> } = {
+    id: "pubcopy",
+    version: "0.0.0",
+  };
+}
 export class PluginSettingTab {
   containerEl = {
     empty: () => {},
@@ -68,6 +77,10 @@ export class Vault {
     const content = this.files.get(file.path);
     if (content === undefined) throw new Error(`File not found: ${file.path}`);
     return content;
+  }
+
+  async cachedRead(file: TFile): Promise<string> {
+    return this.read(file);
   }
 
   async readBinary(file: TFile): Promise<ArrayBuffer> {

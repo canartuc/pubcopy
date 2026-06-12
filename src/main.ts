@@ -259,11 +259,8 @@ export default class PubcopyPlugin extends Plugin {
 
   /** Load settings from disk, merging with defaults for any missing keys. */
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign(
-      {},
-      DEFAULT_SETTINGS,
-      await this.loadData()
-    );
+    const data = (await this.loadData()) as Partial<PubcopySettings> | null;
+    this.settings = { ...DEFAULT_SETTINGS, ...data };
   }
 
   /** Persist current settings to disk. */
