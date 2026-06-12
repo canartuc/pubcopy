@@ -143,7 +143,7 @@ describe("PubcopySettingTab", () => {
     expect(() => tab.display()).not.toThrow();
   });
 
-  it("display() renders the donation section when manifest has a string fundingUrl", async () => {
+  it("display() never renders a donation section, even with a manifest fundingUrl", async () => {
     const { plugin, app } = createPlugin();
     await plugin.loadSettings();
     plugin.manifest.fundingUrl = "https://example.com/coffee";
@@ -153,54 +153,9 @@ describe("PubcopySettingTab", () => {
     (tab as unknown as { containerEl: StubEl }).containerEl = root;
     tab.display();
 
-    expect(root.children.some((c) => c.tag === "hr")).toBe(true);
-    const donationDiv = root.children.find(
-      (c) => c.opts?.cls === "pubcopy-donation"
-    );
-    expect(donationDiv).toBeTruthy();
-    expect(
-      donationDiv?.children.some(
-        (c) =>
-          c.tag === "p" &&
-          c.opts?.text ===
-            "If this plugin saves you time, consider supporting its development:"
-      )
-    ).toBe(true);
-    const link = donationDiv?.children.find((c) => c.tag === "a");
-    expect(link?.opts?.href).toBe("https://example.com/coffee");
-    expect(link?.opts?.text).toBe("Buy me a coffee");
-    expect(link?.attrs.target).toBe("_blank");
-  });
-
-  it("display() uses the first URL when fundingUrl is a keyed map", async () => {
-    const { plugin, app } = createPlugin();
-    await plugin.loadSettings();
-    plugin.manifest.fundingUrl = {
-      "Buy Me a Coffee": "https://example.com/first",
-      "Ko-fi": "https://example.com/second",
-    };
-
-    const tab = new PubcopySettingTab(app as never, plugin);
-    const root = makeStubEl("container");
-    (tab as unknown as { containerEl: StubEl }).containerEl = root;
-    tab.display();
-
-    const donationDiv = root.children.find(
-      (c) => c.opts?.cls === "pubcopy-donation"
-    );
-    const link = donationDiv?.children.find((c) => c.tag === "a");
-    expect(link?.opts?.href).toBe("https://example.com/first");
-  });
-
-  it("display() skips the donation section when there is no fundingUrl", async () => {
-    const { plugin, app } = createPlugin();
-    await plugin.loadSettings();
-
-    const tab = new PubcopySettingTab(app as never, plugin);
-    const root = makeStubEl("container");
-    (tab as unknown as { containerEl: StubEl }).containerEl = root;
-    tab.display();
-
     expect(root.children).toEqual([]);
+    expect(
+      root.children.find((c) => c.opts?.cls === "pubcopy-donation")
+    ).toBeUndefined();
   });
 });

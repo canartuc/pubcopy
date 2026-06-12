@@ -43,9 +43,6 @@ export const DEFAULT_SETTINGS: PubcopySettings = {
 
 /**
  * Settings tab rendered in Obsidian's Settings panel.
- *
- * Includes all configurable options and a support/donation button
- * at the bottom of the page.
  */
 export class PubcopySettingTab extends PluginSettingTab {
   plugin: PubcopyPlugin;
@@ -122,38 +119,5 @@ export class PubcopySettingTab extends PluginSettingTab {
           })
       );
 
-    // Donation section. The URL comes from manifest.json's fundingUrl at
-    // runtime so no external domain is hardcoded into the bundle.
-    const fundingUrl = this.getFundingUrl();
-    if (fundingUrl) {
-      containerEl.createEl("hr");
-
-      const donationDiv = containerEl.createDiv({ cls: "pubcopy-donation" });
-      donationDiv.createEl("p", {
-        text: "If this plugin saves you time, consider supporting its development:",
-      });
-
-      const link = donationDiv.createEl("a", {
-        href: fundingUrl,
-        text: "Buy me a coffee",
-        cls: "pubcopy-donation-link",
-      });
-      link.setAttr("target", "_blank");
-    }
-  }
-
-  /** Resolve the funding URL from the plugin manifest (string or keyed map). */
-  private getFundingUrl(): string | null {
-    // fundingUrl is part of the manifest spec but missing from PluginManifest typings.
-    const manifest = this.plugin.manifest as typeof this.plugin.manifest & {
-      fundingUrl?: string | Record<string, string>;
-    };
-    const funding = manifest.fundingUrl;
-    if (typeof funding === "string" && funding) return funding;
-    if (funding && typeof funding === "object") {
-      const first = Object.values(funding)[0];
-      if (typeof first === "string" && first) return first;
-    }
-    return null;
   }
 }
