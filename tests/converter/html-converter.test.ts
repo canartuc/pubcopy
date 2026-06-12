@@ -18,6 +18,21 @@ function createMockApp(): App {
   return new App();
 }
 
+/** Compute the maximum <ul>/<ol> nesting depth present in an HTML string. */
+function maxListDepth(html: string): number {
+  let depth = 0;
+  let max = 0;
+  for (const m of html.matchAll(/<(\/?)[ou]l\b/g)) {
+    if (m[1]) {
+      depth--;
+    } else {
+      depth++;
+      max = Math.max(max, depth);
+    }
+  }
+  return max;
+}
+
 describe("html-converter", () => {
   describe("basic conversion", () => {
     it("converts simple markdown to HTML", async () => {
@@ -390,6 +405,227 @@ describe("html-converter", () => {
       expect(result.html).toContain("<strong>Note:</strong>");
       expect(result.html).toContain("<strong>Warning:</strong>");
       expect(result.html).not.toContain("[!warning]");
+    });
+  });
+
+  describe("GFM tables", () => {
+    const tableMd = "| Name | Value |\n| :--- | ----: |\n| foo | 1 |\n| bar | 2 |";
+
+    it("renders full table structure that survives sanitization for Medium", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(tableMd, MediumProfile, defaultSettings, app as never, warnings);
+      expect(result.html).toContain("<table>");
+      expect(result.html).toContain("<thead>");
+      expect(result.html).toContain("<tbody>");
+      expect(result.html).toContain("<tr>");
+      expect(result.html).toContain("<th>Name</th>");
+      expect(result.html).toContain("<th>Value</th>");
+      expect(result.html).toContain("<td>foo</td>");
+      expect(result.html).toContain("<td>2</td>");
+      expect(result.html).toContain("</table>");
+    });
+
+    it("renders full table structure that survives sanitization for Substack", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(tableMd, SubstackProfile, defaultSettings, app as never, warnings);
+      expect(result.html).toContain("<table>");
+      expect(result.html).toContain("<thead>");
+      expect(result.html).toContain("<tbody>");
+      expect(result.html).toContain("<tr>");
+      expect(result.html).toContain("<th>Name</th>");
+      expect(result.html).toContain("<td>bar</td>");
+      expect(result.html).toContain("<td>1</td>");
+      expect(result.html).toContain("</table>");
+    });
+  });
+
+  describe("list nesting flattening", () => {
+    const deepList = "- level1\n  - level2\n    - level3\n      - level4";
+
+    it("flattens lists beyond depth 2 for Medium while keeping all items", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(deepList, MediumProfile, defaultSettings, app as never, warnings);
+      expect(maxListDepth(result.html)).toBe(2);
+      // Every item survives even though deeper <ul> wrappers are removed
+      expect(result.html).toContain("level1");
+      expect(result.html).toContain("level2");
+      expect(result.html).toContain("<li>level3");
+      expect(result.html).toContain("<li>level4</li>");
+    });
+
+    it("preserves full list nesting for Substack", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(deepList, SubstackProfile, defaultSettings, app as never, warnings);
+      expect(maxListDepth(result.html)).toBe(4);
+      expect(result.html).toContain("<li>level4</li>");
+    });
+  });
+
+  describe("heading capping with attributes", () => {
+    it("caps raw HTML H5/H6 headings carrying attributes to H4 for Medium", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        '<h5 id="custom" class="fancy">Anchored</h5>\n\n###### Six',
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      // Sanitizer strips the attributes, so the bare <h5> is then capped to <h4>
+      expect(result.html).toContain("<h4>Anchored</h4>");
+      expect(result.html).toContain("<h4>Six</h4>");
+      expect(result.html).not.toContain("<h5");
+      expect(result.html).not.toContain("<h6");
+      expect(result.html).not.toContain('id="custom"');
+    });
+  });
+
+  describe("math ordering and escapes", () => {
+    it("block math containing an escaped dollar does not break ($$..\\$..$$)", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "$$a = \\$5 + b$$",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain('class="katex"');
+      expect(result.html).toContain('class="math-block"');
+      expect(result.html).not.toContain("$$");
+      expect(warnings.hasWarnings()).toBe(false);
+    });
+
+    it("consumes block math before inline math so both render independently", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "$$x^2$$\n\nInline $z+1$ after",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      const katexRoots = result.html.match(/<span class="katex">/g) ?? [];
+      expect(katexRoots.length).toBe(2);
+      // Block math gets display-mode wrapper; inline does not duplicate it
+      const displays = result.html.match(/<span class="katex-display">/g) ?? [];
+      expect(displays.length).toBe(1);
+      expect(result.html).not.toContain("$$");
+      expect(result.html).not.toContain("$z+1$");
+      expect(warnings.hasWarnings()).toBe(false);
+    });
+
+    it("does not treat escaped \\$ as math delimiters", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "It costs \\$5 and \\$10 today",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).not.toContain("katex");
+      // remark unescapes \$ to a literal dollar sign
+      expect(result.html).toContain("$5 and $10");
+      expect(warnings.hasWarnings()).toBe(false);
+    });
+
+    it("renders inline math end-to-end with katex markup and no warnings", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "Euler: $e^{i\\pi} + 1 = 0$",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain('class="katex"');
+      expect(result.html).not.toContain("katex-display");
+      expect(warnings.hasWarnings()).toBe(false);
+    });
+
+    it("renders block math end-to-end inside a math-block div with no warnings", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "$$\\frac{a}{b}$$",
+        SubstackProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain('<div class="math-block">');
+      expect(result.html).toContain('class="katex-display"');
+      expect(warnings.hasWarnings()).toBe(false);
+    });
+  });
+
+  describe("mermaid warning details", () => {
+    it("records a mermaid warning and keeps surrounding content intact", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "Intro\n\n```mermaid\nflowchart LR\nX --> Y\n```\n\nOutro",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      const collected = warnings.getWarnings();
+      expect(collected.length).toBe(1);
+      expect(collected[0].elementType).toBe("mermaid");
+      expect(collected[0].reason).toContain("not supported");
+      expect(result.html).toContain("<p>Intro</p>");
+      expect(result.html).toContain("<p>Outro</p>");
+      expect(result.html).not.toContain("flowchart");
+    });
+  });
+
+  describe("callout edge cases", () => {
+    it("flushes a callout with content at end of file", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "> [!note] Final thought\n> spanning lines",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain("<blockquote>");
+      expect(result.html).toContain("<strong>Note:</strong>");
+      expect(result.html).toContain("Final thought");
+      expect(result.html).toContain("spanning lines");
+      expect(result.html).not.toContain("[!note]");
+    });
+
+    it("ends the callout when a code fence immediately follows", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "> [!tip] Use this\n```js\nconst x = 1;\n```",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain("<strong>Tip:</strong>");
+      expect(result.html).toContain("<pre><code");
+      expect(result.html).toContain("const x = 1;");
+      // Code block renders after the blockquote closes, not inside it
+      expect(result.html.indexOf("</blockquote>")).toBeLessThan(result.html.indexOf("<pre><code"));
+      expect(result.html).not.toContain("[!tip]");
+    });
+
+    it("keeps all lines of multi-line callout content inside the blockquote", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "> [!warning] Title here\n> line one\n> line two\n> line three\n\nAfter paragraph",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain("<strong>Warning:</strong>");
+      const blockquoteEnd = result.html.indexOf("</blockquote>");
+      expect(result.html.indexOf("line one")).toBeLessThan(blockquoteEnd);
+      expect(result.html.indexOf("line two")).toBeLessThan(blockquoteEnd);
+      expect(result.html.indexOf("line three")).toBeLessThan(blockquoteEnd);
+      // Trailing paragraph stays outside the blockquote
+      expect(result.html.indexOf("After paragraph")).toBeGreaterThan(blockquoteEnd);
+    });
+
+    it("strips the foldable [!tip]+ marker and keeps title and body", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "> [!tip]+ Folded open\n> details",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain("<strong>Tip:</strong> Folded open");
+      expect(result.html).toContain("details");
+      expect(result.html).not.toContain("]+");
+      expect(result.html).not.toContain("+ Folded");
     });
   });
 });

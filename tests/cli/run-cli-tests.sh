@@ -112,7 +112,7 @@ read_vault_file() {
 # Assert that a string contains a substring
 assert_contains() {
   local haystack="$1" needle="$2" label="$3"
-  if echo "$haystack" | grep -qF "$needle"; then
+  if echo "$haystack" | grep -qF -- "$needle"; then
     pass "$label"
   else
     fail "$label" "expected to contain: $needle"
@@ -122,7 +122,7 @@ assert_contains() {
 # Assert that a string does NOT contain a substring
 assert_not_contains() {
   local haystack="$1" needle="$2" label="$3"
-  if echo "$haystack" | grep -qF "$needle"; then
+  if echo "$haystack" | grep -qF -- "$needle"; then
     fail "$label" "should not contain: $needle"
   else
     pass "$label"
@@ -179,11 +179,24 @@ cp main.js manifest.json "$PLUGIN_DIR/"
 [ -f styles.css ] && cp styles.css "$PLUGIN_DIR/" || true
 pass "Plugin deployed to vault"
 
-# Deploy test fixtures
-for fixture in "$FIXTURES_DIR"/*.md; do
-  cp "$fixture" "$VAULT_PATH/"
+# Deploy test fixtures (markdown notes and binary assets)
+for fixture in "$FIXTURES_DIR"/*.md "$FIXTURES_DIR"/*.png; do
+  [ -e "$fixture" ] && cp "$fixture" "$VAULT_PATH/"
 done
 pass "Test fixtures deployed"
+
+# Wait until Obsidian's metadata cache has indexed the binary fixture,
+# otherwise image embeds fall back to URL references instead of base64.
+for i in $(seq 1 15); do
+  INDEXED=$(obsidian_eval "app.metadataCache.getFirstLinkpathDest('pubcopy-test-image.png', '') ? 'yes' : 'no'")
+  [ "$INDEXED" = "yes" ] && break
+  sleep 1
+done
+if [ "$INDEXED" = "yes" ]; then
+  pass "Binary fixture indexed by metadata cache"
+else
+  fail "Binary fixture indexing" "pubcopy-test-image.png not indexed after 15s"
+fi
 
 # Reload plugin
 if "$OBSIDIAN" plugin:reload vault="$VAULT_NAME" id=pubcopy >/dev/null 2>&1; then
@@ -290,6 +303,102 @@ assert_contains "$PLAIN" "# Hello World" "Heading preserved in markdown"
 assert_contains "$PLAIN" "**bold**" "Bold markdown preserved"
 assert_not_contains "$PLAIN" "[[wikilink]]" "Wikilinks stripped in markdown"
 assert_not_contains "$PLAIN" "title: Test Note" "Frontmatter stripped in markdown"
+
+# ---------- Test 6: File-menu copies the clicked (non-active) file ----------
+
+log "Test: File-menu copy of a non-active file (regression)"
+
+FM_HTML_OUT="${OUTPUT_PREFIX}_filemenu.html"
+FM_ERR_OUT="${OUTPUT_PREFIX}_filemenu_err.txt"
+rm -f "$VAULT_PATH/$FM_HTML_OUT" "$VAULT_PATH/$FM_ERR_OUT"
+
+# Open the basic note so a DIFFERENT note is active, then trigger the
+# file-menu event for the filemenu fixture via a stub Menu and click
+# "Copy for medium" in the Pubcopy submenu.
+FM_JS="
+navigator.clipboard.write = function(data) {
+  return data[0].getType('text/html').then(function(blob) {
+    return blob.text();
+  }).then(function(html) {
+    return app.vault.adapter.write('${FM_HTML_OUT}', html);
+  });
+};
+function stubItem() {
+  return {
+    title: '',
+    setTitle: function(t) { this.title = t; return this; },
+    setIcon: function() { return this; },
+    onClick: function(cb) { this.cb = cb; return this; },
+    setSubmenu: function() { this.sub = stubMenu(); return this.sub; }
+  };
+}
+function stubMenu() {
+  return {
+    items: [],
+    addItem: function(cb) { var it = stubItem(); this.items.push(it); cb(it); return this; }
+  };
+}
+app.workspace.openLinkText('pubcopy-test-basic', '', false).then(function() {
+  var file = app.vault.getAbstractFileByPath('pubcopy-test-filemenu.md');
+  if (!file) { return app.vault.adapter.write('${FM_ERR_OUT}', 'fixture not found'); }
+  var menu = stubMenu();
+  app.workspace.trigger('file-menu', menu, file);
+  var root = menu.items.filter(function(i) { return i.title === 'Pubcopy'; })[0];
+  if (!root || !root.sub) { return app.vault.adapter.write('${FM_ERR_OUT}', 'Pubcopy submenu missing'); }
+  var item = root.sub.items.filter(function(i) { return i.title === 'Copy for medium'; })[0];
+  if (!item || !item.cb) { return app.vault.adapter.write('${FM_ERR_OUT}', 'Copy for medium item missing'); }
+  return item.cb();
+}).catch(function(e) {
+  app.vault.adapter.write('${FM_ERR_OUT}', e.message);
+});
+'done'
+"
+"$OBSIDIAN" eval vault="$VAULT_NAME" code="$FM_JS" >/dev/null 2>&1 || true
+for i in $(seq 1 20); do
+  [ -e "$VAULT_PATH/$FM_ERR_OUT" ] && break
+  [ -e "$VAULT_PATH/$FM_HTML_OUT" ] && break
+  sleep 1
+done
+
+if [ -e "$VAULT_PATH/$FM_ERR_OUT" ]; then
+  fail "File-menu conversion ran" "$(read_vault_file "$FM_ERR_OUT")"
+else
+  HTML=$(read_vault_file "$FM_HTML_OUT")
+  assert_nonempty "$HTML" "File-menu copy produced output"
+  assert_contains "$HTML" "FILEMENU-CONTENT-MARKER" "Clicked file content copied"
+  assert_contains "$HTML" "FileMenu Target QXZ123" "Clicked file heading present"
+  assert_not_contains "$HTML" "Hello World" "Active note content NOT copied"
+fi
+
+# ---------- Test 7: Image embeds become data URIs ----------
+
+log "Test: Image embed resolution (regression: embeds survive preprocessing)"
+
+run_conversion "pubcopy-test-images" "pubcopy:copy-for-medium" "images_medium"
+HTML=$(read_vault_file "${OUTPUT_PREFIX}_images_medium.html")
+
+assert_nonempty "$HTML" "Image test produced output"
+assert_contains "$HTML" "data:image/png;base64," "Local image embedded as base64 data URI"
+assert_contains "$HTML" 'width="100"' "Sized embed has width attribute"
+assert_contains "$HTML" "A tiny red pixel" "Caption rendered"
+assert_not_contains "$HTML" "![[" "No raw embed syntax in output"
+assert_not_contains "$HTML" "!pubcopy-test-image.png" "Embed not mangled into plain text"
+
+# ---------- Test 8: Code fence protection ----------
+
+log "Test: Code fence protection (regression)"
+
+run_conversion "pubcopy-test-codefence" "pubcopy:copy-for-medium" "codefence_medium"
+HTML=$(read_vault_file "${OUTPUT_PREFIX}_codefence_medium.html")
+
+assert_nonempty "$HTML" "Code fence test produced output"
+assert_contains "$HTML" 'echo $HOME costs $5' "Dollar signs in fence untouched"
+assert_contains "$HTML" "==pattern==" "Highlight syntax in fence untouched"
+assert_contains "$HTML" "- [ ] not a task" "Task syntax in fence untouched"
+assert_contains "$HTML" "[!note] not a callout" "Callout syntax in fence untouched"
+assert_contains "$HTML" "katex" "Math outside fence still renders"
+assert_contains "$HTML" "<strong>highlight</strong>" "Highlight outside fence still converts"
+assert_contains "$HTML" "\$x\$ and ==y==" "Inline code span untouched"
 
 # ---------- cleanup ----------
 

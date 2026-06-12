@@ -143,6 +143,64 @@ describe("convert() integration", () => {
     });
   });
 
+  describe("image embeds through the full pipeline (regression)", () => {
+    // A valid 1x1 PNG (correct magic bytes) as binary fixture
+    const PNG_BYTES = Uint8Array.from(
+      atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+      (c) => c.charCodeAt(0)
+    ).buffer;
+
+    function appWithImage(): App {
+      const app = createMockApp();
+      const file = new TFile("pic.png");
+      app.vault.addMockBinaryFile("pic.png", PNG_BYTES);
+      app.metadataCache.addMockLookup("pic.png", file);
+      return app;
+    }
+
+    it("embeds ![[image]] as a base64 data URI surviving sanitization", async () => {
+      const app = appWithImage();
+      const result = await convert("Before ![[pic.png]] after", MediumProfile, defaultSettings, app as never);
+      expect(result.html).toContain("data:image/png;base64,");
+      expect(result.html).toMatch(/<img src="data:image\/png;base64,[^"]+" alt="pic.png">/);
+    });
+
+    it("keeps width/height for sized embeds ![[image|300]] and ![[image|300x200]]", async () => {
+      const app = appWithImage();
+      const result = await convert("![[pic.png|300]]\n\n![[pic.png|300x200]]", MediumProfile, defaultSettings, app as never);
+      expect(result.html).toContain('width="300"');
+      expect(result.html).toContain('height="200"');
+      expect(result.html).toContain("data:image/png;base64,");
+    });
+
+    it("renders captioned embeds ![[image|caption]] with caption and data URI", async () => {
+      const app = appWithImage();
+      const medium = await convert("![[pic.png|A red dot]]", MediumProfile, defaultSettings, app as never);
+      expect(medium.html).toContain("data:image/png;base64,");
+      expect(medium.html).toContain("<p><em>A red dot</em></p>");
+
+      const substack = await convert("![[pic.png|A red dot]]", SubstackProfile, defaultSettings, app as never);
+      expect(substack.html).toContain("data:image/png;base64,");
+      expect(substack.html).toContain("<figcaption>A red dot</figcaption>");
+    });
+
+    it("still strips user-authored data: URIs (sanitizer stays strict)", async () => {
+      const app = appWithImage();
+      const result = await convert(
+        '<img src="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9ImFsZXJ0KDEpIj48L3N2Zz4=" alt="xss">',
+        MediumProfile, defaultSettings, app as never
+      );
+      expect(result.html).not.toContain("data:image/svg+xml");
+    });
+
+    it("falls back to a URL reference when the image is missing from the vault", async () => {
+      const app = createMockApp();
+      const result = await convert("![[missing.png]]", MediumProfile, defaultSettings, app as never);
+      expect(result.html).toContain('<img src="missing.png"');
+      expect(result.warnings.getWarnings().some((w) => w.elementType === "image")).toBe(true);
+    });
+  });
+
   describe("entity decoding (regression)", () => {
     it("does not double-decode entity-of-an-entity sequences", () => {
       // &#x26;lt; means the literal text "&lt;" — it must NOT become "<"

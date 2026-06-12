@@ -104,6 +104,127 @@ describe("embed-resolver", () => {
     expect(result).not.toContain("^my-block");
   });
 
+  it("resolves nested embeds recursively (A embeds B embeds C)", async () => {
+    const app = createMockApp();
+    const fileA = new TFile("a.md");
+    const fileB = new TFile("b.md");
+    const fileC = new TFile("c.md");
+    app.vault.addMockFile("a.md", "A-start ![[b]] A-end");
+    app.vault.addMockFile("b.md", "B-start ![[c]] B-end");
+    app.vault.addMockFile("c.md", "C-content");
+    app.metadataCache.addMockLookup("a", fileA);
+    app.metadataCache.addMockLookup("b", fileB);
+    app.metadataCache.addMockLookup("c", fileC);
+
+    const warnings = new WarningCollector();
+    const result = await resolveEmbeds("![[a]]", app as never, warnings);
+    expect(result).toBe("A-start B-start C-content B-end A-end");
+    expect(result).not.toContain("![[");
+    expect(warnings.hasWarnings()).toBe(false);
+  });
+
+  it("detects circular references (A embeds B, B embeds A) without looping", async () => {
+    const app = createMockApp();
+    const fileA = new TFile("a.md");
+    const fileB = new TFile("b.md");
+    app.vault.addMockFile("a.md", "A-content ![[b]]");
+    app.vault.addMockFile("b.md", "B-content ![[a]]");
+    app.metadataCache.addMockLookup("a", fileA);
+    app.metadataCache.addMockLookup("b", fileB);
+
+    const warnings = new WarningCollector();
+    const result = await resolveEmbeds("![[a]]", app as never, warnings);
+    // Both notes are inlined once; the circular back-reference is removed
+    expect(result).toContain("A-content");
+    expect(result).toContain("B-content");
+    expect(result).not.toContain("![[");
+    const circular = warnings
+      .getWarnings()
+      .filter((w) => w.reason === "Circular reference detected");
+    expect(circular).toHaveLength(1);
+    expect(circular[0].fileName).toBe("a");
+  });
+
+  it("leaves pipe-aliased embeds untouched (rejected by parseEmbedRef regex)", async () => {
+    const app = createMockApp();
+    const file = new TFile("note.md");
+    app.vault.addMockFile("note.md", "Note content");
+    app.metadataCache.addMockLookup("note", file);
+
+    const warnings = new WarningCollector();
+    const input = "Before ![[note|alias]] middle ![[note#Section|alias]] after";
+    const result = await resolveEmbeds(input, app as never, warnings);
+    // parseEmbedRef's regex disallows "|", so these embeds are skipped:
+    // not resolved, not removed, and no warning is recorded.
+    expect(result).toBe(input);
+    expect(result).not.toContain("Note content");
+    expect(warnings.hasWarnings()).toBe(false);
+  });
+
+  it("warns 'empty' and removes the embed when the heading is not found", async () => {
+    const app = createMockApp();
+    const file = new TFile("doc.md");
+    app.vault.addMockFile("doc.md", "# Top\nIntro\n## Section A\nContent A");
+    app.metadataCache.addMockLookup("doc", file);
+
+    const warnings = new WarningCollector();
+    const result = await resolveEmbeds(
+      "Before ![[doc#Missing Heading]] after",
+      app as never,
+      warnings
+    );
+    expect(result).toBe("Before  after");
+    expect(warnings.hasWarnings()).toBe(true);
+    expect(warnings.getWarnings()[0].elementType).toBe("embed");
+    expect(warnings.getWarnings()[0].reason).toContain("empty");
+  });
+
+  it("warns 'Failed to resolve' when vault.cachedRead throws", async () => {
+    const app = createMockApp();
+    // Lookup succeeds but the file content is never registered in the vault,
+    // so cachedRead throws "File not found: ghost.md".
+    app.metadataCache.addMockLookup("ghost", new TFile("ghost.md"));
+
+    const warnings = new WarningCollector();
+    const result = await resolveEmbeds("Before ![[ghost]] after", app as never, warnings);
+    expect(result).toBe("Before  after");
+    expect(warnings.hasWarnings()).toBe(true);
+    expect(warnings.getWarnings()[0].reason).toContain("Failed to resolve");
+    expect(warnings.getWarnings()[0].reason).toContain("File not found: ghost.md");
+  });
+
+  it("warns and removes the embed when the referenced note is empty", async () => {
+    const app = createMockApp();
+    const file = new TFile("empty.md");
+    app.vault.addMockFile("empty.md", "   \n\t\n");
+    app.metadataCache.addMockLookup("empty", file);
+
+    const warnings = new WarningCollector();
+    const result = await resolveEmbeds("Before ![[empty]] after", app as never, warnings);
+    expect(result).toBe("Before  after");
+    expect(warnings.hasWarnings()).toBe(true);
+    expect(warnings.getWarnings()[0].reason).toContain("Referenced content is empty");
+  });
+
+  it("treats different headings of the same note as distinct embed keys", async () => {
+    const app = createMockApp();
+    const file = new TFile("doc.md");
+    // Section A embeds Section B of the same note. The visited-set keys
+    // include the heading, so this is NOT flagged as circular.
+    app.vault.addMockFile(
+      "doc.md",
+      "## Section A\nContent A ![[doc#Section B]]\n## Section B\nContent B"
+    );
+    app.metadataCache.addMockLookup("doc", file);
+
+    const warnings = new WarningCollector();
+    const result = await resolveEmbeds("![[doc#Section A]]", app as never, warnings);
+    expect(result).toContain("Content A");
+    expect(result).toContain("Content B");
+    expect(result).not.toContain("![[");
+    expect(warnings.hasWarnings()).toBe(false);
+  });
+
   describe("regressions", () => {
     it("matches block IDs exactly, not as substrings", async () => {
       const app = createMockApp();

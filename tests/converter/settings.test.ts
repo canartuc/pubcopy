@@ -1,5 +1,54 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_SETTINGS } from "../../src/settings";
+import { DEFAULT_SETTINGS, PubcopySettingTab } from "../../src/settings";
+import PubcopyPlugin from "../../src/main";
+import { App } from "../mocks/obsidian";
+
+function createPlugin(): { plugin: PubcopyPlugin; app: App } {
+  const app = new App();
+  const plugin = new PubcopyPlugin(app as never, { id: "pubcopy" } as never);
+  return { plugin, app };
+}
+
+/**
+ * Minimal element stub for the donation section, which uses Obsidian's
+ * DOM helpers (createDiv, setAttr) that the shared mock containerEl lacks.
+ */
+type StubEl = {
+  tag: string;
+  opts: Record<string, unknown> | undefined;
+  children: StubEl[];
+  attrs: Record<string, string>;
+  empty: () => void;
+  createEl: (tag: string, opts?: Record<string, unknown>) => StubEl;
+  createDiv: (opts?: Record<string, unknown>) => StubEl;
+  setAttr: (name: string, value: string) => void;
+};
+
+function makeStubEl(tag: string, opts?: Record<string, unknown>): StubEl {
+  const el: StubEl = {
+    tag,
+    opts,
+    children: [],
+    attrs: {},
+    empty: () => {
+      el.children = [];
+    },
+    createEl: (childTag, childOpts) => {
+      const child = makeStubEl(childTag, childOpts);
+      el.children.push(child);
+      return child;
+    },
+    createDiv: (childOpts) => {
+      const child = makeStubEl("div", childOpts);
+      el.children.push(child);
+      return child;
+    },
+    setAttr: (name, value) => {
+      el.attrs[name] = value;
+    },
+  };
+  return el;
+}
 
 describe("settings", () => {
   it("has correct default for stripFrontmatter", () => {
@@ -20,5 +69,138 @@ describe("settings", () => {
 
   it("has correct default for showNotification", () => {
     expect(DEFAULT_SETTINGS.showNotification).toBe(true);
+  });
+
+  it("has exactly the 5 documented keys with current defaults (drift guard)", () => {
+    expect(DEFAULT_SETTINGS).toEqual({
+      stripFrontmatter: true,
+      stripTags: true,
+      stripWikilinks: true,
+      imageHandling: "auto",
+      showNotification: true,
+    });
+    expect(Object.keys(DEFAULT_SETTINGS).sort()).toEqual([
+      "imageHandling",
+      "showNotification",
+      "stripFrontmatter",
+      "stripTags",
+      "stripWikilinks",
+    ]);
+  });
+});
+
+describe("loadSettings / saveSettings", () => {
+  it("falls back to DEFAULT_SETTINGS when there is no data.json (loadData null)", async () => {
+    const { plugin } = createPlugin();
+    await plugin.loadSettings();
+    expect(plugin.settings).toEqual(DEFAULT_SETTINGS);
+    // A fresh copy is made, so later mutations don't corrupt the shared defaults
+    expect(plugin.settings).not.toBe(DEFAULT_SETTINGS);
+  });
+
+  it("merges partial saved data with defaults", async () => {
+    const { plugin } = createPlugin();
+    await plugin.saveData({ stripTags: false });
+    await plugin.loadSettings();
+    expect(plugin.settings).toEqual({ ...DEFAULT_SETTINGS, stripTags: false });
+  });
+
+  it("preserves unknown extra keys without crashing", async () => {
+    const { plugin } = createPlugin();
+    await plugin.saveData({ stripTags: false, futureSetting: "experimental" });
+    await plugin.loadSettings();
+    const settings = plugin.settings as Record<string, unknown>;
+    expect(settings.futureSetting).toBe("experimental");
+    expect(settings.stripTags).toBe(false);
+    expect(settings.stripFrontmatter).toBe(true);
+    expect(settings.imageHandling).toBe("auto");
+    expect(settings.showNotification).toBe(true);
+  });
+
+  it("round-trips settings through saveSettings then loadSettings", async () => {
+    const { plugin } = createPlugin();
+    await plugin.loadSettings();
+    plugin.settings.imageHandling = "always-url";
+    plugin.settings.showNotification = false;
+    await plugin.saveSettings();
+
+    // Reset in-memory state to prove loadSettings restores the saved values
+    plugin.settings = { ...DEFAULT_SETTINGS };
+    await plugin.loadSettings();
+    expect(plugin.settings).toEqual({
+      ...DEFAULT_SETTINGS,
+      imageHandling: "always-url",
+      showNotification: false,
+    });
+  });
+});
+
+describe("PubcopySettingTab", () => {
+  it("display() runs without throwing using the mock containerEl", async () => {
+    const { plugin, app } = createPlugin();
+    await plugin.loadSettings();
+    const tab = new PubcopySettingTab(app as never, plugin);
+    expect(() => tab.display()).not.toThrow();
+  });
+
+  it("display() renders the donation section when manifest has a string fundingUrl", async () => {
+    const { plugin, app } = createPlugin();
+    await plugin.loadSettings();
+    plugin.manifest.fundingUrl = "https://example.com/coffee";
+
+    const tab = new PubcopySettingTab(app as never, plugin);
+    const root = makeStubEl("container");
+    (tab as unknown as { containerEl: StubEl }).containerEl = root;
+    tab.display();
+
+    expect(root.children.some((c) => c.tag === "hr")).toBe(true);
+    const donationDiv = root.children.find(
+      (c) => c.opts?.cls === "pubcopy-donation"
+    );
+    expect(donationDiv).toBeTruthy();
+    expect(
+      donationDiv?.children.some(
+        (c) =>
+          c.tag === "p" &&
+          c.opts?.text ===
+            "If this plugin saves you time, consider supporting its development:"
+      )
+    ).toBe(true);
+    const link = donationDiv?.children.find((c) => c.tag === "a");
+    expect(link?.opts?.href).toBe("https://example.com/coffee");
+    expect(link?.opts?.text).toBe("Buy me a coffee");
+    expect(link?.attrs.target).toBe("_blank");
+  });
+
+  it("display() uses the first URL when fundingUrl is a keyed map", async () => {
+    const { plugin, app } = createPlugin();
+    await plugin.loadSettings();
+    plugin.manifest.fundingUrl = {
+      "Buy Me a Coffee": "https://example.com/first",
+      "Ko-fi": "https://example.com/second",
+    };
+
+    const tab = new PubcopySettingTab(app as never, plugin);
+    const root = makeStubEl("container");
+    (tab as unknown as { containerEl: StubEl }).containerEl = root;
+    tab.display();
+
+    const donationDiv = root.children.find(
+      (c) => c.opts?.cls === "pubcopy-donation"
+    );
+    const link = donationDiv?.children.find((c) => c.tag === "a");
+    expect(link?.opts?.href).toBe("https://example.com/first");
+  });
+
+  it("display() skips the donation section when there is no fundingUrl", async () => {
+    const { plugin, app } = createPlugin();
+    await plugin.loadSettings();
+
+    const tab = new PubcopySettingTab(app as never, plugin);
+    const root = makeStubEl("container");
+    (tab as unknown as { containerEl: StubEl }).containerEl = root;
+    tab.display();
+
+    expect(root.children).toEqual([]);
   });
 });

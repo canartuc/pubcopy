@@ -161,38 +161,36 @@ export async function convertToHtml(
   );
 
   // 5. Image embeds: ![[image.png]], ![[image.png|300]], ![[image.png|My caption]]
-  //    Pipe value is size if numeric, caption otherwise
+  //    Pipe value is size if numeric, caption otherwise.
+  //    Converted to a plain RELATIVE <img> tag here; the post-pass (after
+  //    sanitization) resolves it to a base64 data URI. Injecting data: URIs
+  //    before rehype-sanitize would get them stripped, since the sanitizer
+  //    intentionally rejects data: sources in user-authored content.
   const imageEmbedRegex = /!\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g;
-  processed = await replaceAsyncOutsideProtected(
+  processed = replaceOutsideProtected(
     processed,
     imageEmbedRegex,
-    async (match) => {
-      const fileName = match[1].trim();
-      if (!isImageFile(fileName)) return match[0];
+    (match: string, fileNameRaw: string, pipeRaw?: string) => {
+      const fileName = fileNameRaw.trim();
+      if (!isImageFile(fileName)) return match;
 
       elementCount++;
-      const pipeValue = match[2]?.trim();
+      const pipeValue = pipeRaw?.trim();
 
-      let sizeStr: string | undefined;
-      let caption: string | undefined;
+      let sizeAttrs = "";
+      let alt = fileName;
       if (pipeValue) {
-        if (/^\d+(?:x\d+)?$/.test(pipeValue)) {
-          sizeStr = pipeValue;
+        const sizeMatch = pipeValue.match(/^(\d+)(?:x(\d+))?$/);
+        if (sizeMatch) {
+          sizeAttrs = ` width="${sizeMatch[1]}"`;
+          if (sizeMatch[2]) sizeAttrs += ` height="${sizeMatch[2]}"`;
         } else {
-          caption = pipeValue;
+          // Caption: carried via alt; the post-pass wraps it per platform
+          alt = pipeValue;
         }
       }
 
-      return resolveImage(
-        app,
-        fileName,
-        fileName,
-        sizeStr,
-        settings.imageHandling,
-        warnings,
-        caption,
-        profile.name
-      );
+      return `<img src="${escapeHtml(fileName)}" alt="${escapeHtml(alt)}"${sizeAttrs}>`;
     }
   );
 
@@ -269,17 +267,22 @@ export async function convertToHtml(
     async (match) => {
       const src = match[1];
       const alt = match[2];
+      const attrs = match[3] ?? "";
       const isLocal = !src.startsWith("data:") && !src.startsWith("http:") && !src.startsWith("https:");
       // Use alt text as caption only if it's meaningful (not just the filename)
       const caption = (alt && alt !== src && !isImageFile(alt)) ? alt : undefined;
 
       if (isLocal) {
         elementCount++;
+        // Preserve size attributes emitted by the image-embed pre-pass
+        const width = attrs.match(/width="(\d+)"/)?.[1];
+        const height = attrs.match(/height="(\d+)"/)?.[1];
+        const sizeStr = width ? (height ? `${width}x${height}` : width) : undefined;
         return resolveImage(
           app,
           src,
           alt,
-          undefined,
+          sizeStr,
           settings.imageHandling,
           warnings,
           caption,
