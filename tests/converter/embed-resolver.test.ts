@@ -145,19 +145,22 @@ describe("embed-resolver", () => {
     expect(circular[0].fileName).toBe("a");
   });
 
-  it("leaves pipe-aliased embeds untouched (rejected by parseEmbedRef regex)", async () => {
+  it("resolves pipe-aliased embeds (alias is display-only, like Obsidian)", async () => {
     const app = createMockApp();
     const file = new TFile("note.md");
-    app.vault.addMockFile("note.md", "Note content");
+    app.vault.addMockFile(
+      "note.md",
+      "# Top\nIntro text\n## Section\nSection content"
+    );
     app.metadataCache.addMockLookup("note", file);
 
     const warnings = new WarningCollector();
     const input = "Before ![[note|alias]] middle ![[note#Section|alias]] after";
     const result = await resolveEmbeds(input, app as never, warnings);
-    // parseEmbedRef's regex disallows "|", so these embeds are skipped:
-    // not resolved, not removed, and no warning is recorded.
-    expect(result).toBe(input);
-    expect(result).not.toContain("Note content");
+    expect(result).toContain("Intro text");
+    expect(result).toContain("Section content");
+    expect(result).not.toContain("![[");
+    expect(result).not.toContain("alias");
     expect(warnings.hasWarnings()).toBe(false);
   });
 

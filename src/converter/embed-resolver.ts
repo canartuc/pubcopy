@@ -61,15 +61,18 @@ interface EmbedRef {
 /**
  * Parse an embed match string into structured fields.
  *
- * Handles three patterns:
+ * Handles four patterns:
  * - `![[filename]]` (full note)
  * - `![[filename#heading]]` (heading section)
  * - `![[filename#^block-id]]` (specific block)
+ * - any of the above with a `|alias` suffix (display-only, ignored)
  *
  * @returns Parsed reference, or null if the syntax doesn't match.
  */
 function parseEmbedRef(match: string): EmbedRef | null {
-  const refMatch = match.match(/^!\[\[([^\]#|]+)(?:#(\^)?([^\]|]+))?\]\]$/);
+  const refMatch = match.match(
+    /^!\[\[([^\]#|]+)(?:#(\^)?([^\]|]+))?(?:\|[^\]]{0,1000})?\]\]$/
+  );
   if (!refMatch) return null;
 
   const fileName = refMatch[1].trim();
@@ -166,7 +169,8 @@ export async function resolveEmbeds(
   depth: number = 0,
   visited: Set<string> = new Set()
 ): Promise<string> {
-  const embedRegex = /!\[\[([^\]]+)\]\]/g;
+  // Bounded quantifier keeps unclosed "![[" runs linear (no quadratic backtracking)
+  const embedRegex = /!\[\[([^\]]{1,1000})\]\]/g;
   const matches = [...text.matchAll(embedRegex)];
 
   if (depth >= MAX_EMBED_DEPTH) {

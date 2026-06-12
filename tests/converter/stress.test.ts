@@ -242,13 +242,10 @@ describe("convert() stress and extreme inputs", () => {
       expect(result.html).toContain("=====");
     }, 15_000);
 
-    // BUG: the wikilink-stripping regexes in src/converter/preprocessor.ts (the
-    // stripWikilinks block, e.g. /(!?)\[\[([^\]|]+)\|([^\]]+)\]\]/g) backtrack
-    // quadratically on unclosed "[[" runs: preprocess() alone takes ~338ms for
-    // 12.5k chars, ~1312ms for 25k, ~5225ms for 50k (4x per doubling). Full
-    // convert() of 50k chars of "[[" measured at ~5.4s, exceeding the 5s budget;
-    // at the allowed 2MB input cap this extrapolates to hours (DoS hang).
-    it.skip("handles 50k chars of '[[' in under 5 seconds", async () => {
+    // Regression: the wikilink-stripping regexes used to backtrack
+    // quadratically on unclosed "[[" runs (~5.4s for 50k chars; hours at the
+    // 2MB cap). Inner quantifiers are now bounded, making this linear.
+    it("handles 50k chars of '[[' in under 5 seconds", async () => {
       const app = createMockApp();
       const start = performance.now();
       const result = await convert(

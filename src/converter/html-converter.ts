@@ -166,7 +166,8 @@ export async function convertToHtml(
   //    sanitization) resolves it to a base64 data URI. Injecting data: URIs
   //    before rehype-sanitize would get them stripped, since the sanitizer
   //    intentionally rejects data: sources in user-authored content.
-  const imageEmbedRegex = /!\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g;
+  // Bounded quantifiers keep unclosed "![[" runs linear (no quadratic backtracking)
+  const imageEmbedRegex = /!\[\[([^\]|]{1,1000}?)(?:\|([^\]]{1,1000}))?\]\]/g;
   processed = replaceOutsideProtected(
     processed,
     imageEmbedRegex,

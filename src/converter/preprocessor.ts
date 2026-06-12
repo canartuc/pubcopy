@@ -65,11 +65,13 @@ export function preprocess(text: string, settings: PubcopySettings): string {
 
   // Convert wikilinks to plain text (order matters: most specific patterns first).
   // Each pattern captures an optional leading `!` so embeds pass through unchanged.
+  // Inner quantifiers are bounded ({1,1000}) so unclosed "[[" runs fail in
+  // constant time per position instead of backtracking quadratically (ReDoS).
   if (settings.stripWikilinks) {
     // Aliased: [[page|display]] -> display
     result = replaceOutsideProtected(
       result,
-      /(!?)\[\[([^\]|]+)\|([^\]]+)\]\]/g,
+      /(!?)\[\[([^\]|]{1,1000})\|([^\]]{1,1000})\]\]/g,
       (match: string, bang: string, _page: string, display: string) =>
         bang ? match : display
     );
@@ -77,7 +79,7 @@ export function preprocess(text: string, settings: PubcopySettings): string {
     // Heading/block reference: [[page#heading]] or [[page#^block-id]] -> ref text
     result = replaceOutsideProtected(
       result,
-      /(!?)\[\[([^\]#]+)#\^?([^\]]+)\]\]/g,
+      /(!?)\[\[([^\]#]{1,1000})#\^?([^\]]{1,1000})\]\]/g,
       (match: string, bang: string, _page: string, ref: string) =>
         bang ? match : ref
     );
@@ -85,7 +87,7 @@ export function preprocess(text: string, settings: PubcopySettings): string {
     // Plain: [[page]] -> page
     result = replaceOutsideProtected(
       result,
-      /(!?)\[\[([^\]]+)\]\]/g,
+      /(!?)\[\[([^\]]{1,1000})\]\]/g,
       (match: string, bang: string, page: string) => (bang ? match : page)
     );
   }
@@ -93,7 +95,7 @@ export function preprocess(text: string, settings: PubcopySettings): string {
   // Strip Obsidian URI links entirely (they're meaningless outside Obsidian)
   result = replaceOutsideProtected(
     result,
-    /\[([^\]]*)\]\(obsidian:\/\/[^)]+\)/g,
+    /\[([^\]]{0,1000})\]\(obsidian:\/\/[^)]{1,1000}\)/g,
     ""
   );
 
