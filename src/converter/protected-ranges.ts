@@ -11,14 +11,17 @@
  * can chain length-changing replacements without stale-offset bugs.
  */
 
-/** A character range [start, end] in the source text that must not be modified. */
+/** A half-open character range [start, end) in the source text that must not be modified. */
 export interface ProtectedRange {
   start: number;
   end: number;
 }
 
-/** Matches a code fence marker line (``` or ~~~, possibly longer). */
-const FENCE_LINE = /^(`{3,}|~{3,}).*$/gm;
+/**
+ * Matches a code fence marker line: up to 3 spaces of indentation, then
+ * ``` or ~~~ (possibly longer), capturing the rest of the line (info string).
+ */
+const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})(.*)$/gm;
 
 /**
  * Matches an inline code span on a single line. The content must not start
@@ -44,11 +47,16 @@ export function findProtectedRanges(text: string): ProtectedRange[] {
   let match: RegExpExecArray | null;
   while ((match = fenceRegex.exec(text)) !== null) {
     const marker = match[1];
+    const rest = match[2];
     if (openFence === null) {
+      // A backtick "fence" line whose info string contains another backtick
+      // is an inline code span like ```cmd```, not a fence opener (CommonMark)
+      if (marker[0] === "`" && rest.includes("`")) continue;
       openFence = { marker, start: match.index };
     } else if (
       marker[0] === openFence.marker[0] &&
-      marker.length >= openFence.marker.length
+      marker.length >= openFence.marker.length &&
+      /^\s*$/.test(rest)
     ) {
       ranges.push({ start: openFence.start, end: match.index + match[0].length });
       openFence = null;
@@ -69,9 +77,9 @@ export function findProtectedRanges(text: string): ProtectedRange[] {
   return ranges;
 }
 
-/** Check whether a character position falls inside any protected range. */
+/** Check whether a character position falls inside any protected range [start, end). */
 export function isProtected(pos: number, ranges: ProtectedRange[]): boolean {
-  return ranges.some((r) => pos >= r.start && pos <= r.end);
+  return ranges.some((r) => pos >= r.start && pos < r.end);
 }
 
 /**
@@ -115,19 +123,26 @@ export function replaceOutsideProtected(
  * @param pattern - Global regex to match.
  * @param replacer - Async (or sync) function receiving the full match array.
  * @param ranges - Optional precomputed ranges for `text`; computed if omitted.
+ * @param anchor - Optional function returning the position checked against
+ *                 protected ranges (defaults to the match start). Patterns
+ *                 with a context-prefix capture group should anchor past it,
+ *                 so a prefix char touching a protected range doesn't
+ *                 suppress a match that itself lies outside.
  */
 export async function replaceAsyncOutsideProtected(
   text: string,
   pattern: RegExp,
   replacer: (match: RegExpMatchArray) => Promise<string> | string,
-  ranges?: ProtectedRange[]
+  ranges?: ProtectedRange[],
+  anchor?: (match: RegExpMatchArray) => number
 ): Promise<string> {
   const protectedRanges = ranges ?? findProtectedRanges(text);
   let result = "";
   let last = 0;
   for (const match of text.matchAll(pattern)) {
     const index = match.index ?? 0;
-    if (isProtected(index, protectedRanges)) continue;
+    const checkPos = anchor ? anchor(match) : index;
+    if (isProtected(checkPos, protectedRanges)) continue;
     result += text.slice(last, index) + (await replacer(match));
     last = index + match[0].length;
   }

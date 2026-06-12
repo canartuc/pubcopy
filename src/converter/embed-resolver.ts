@@ -19,6 +19,7 @@
 import type { App } from "obsidian";
 import { WarningCollector } from "../utils/errors";
 import { isImageFile } from "./image-handler";
+import { findProtectedRanges, isProtected } from "./protected-ranges";
 
 /** Maximum recursion depth for nested embeds. */
 const MAX_EMBED_DEPTH = 5;
@@ -171,7 +172,10 @@ export async function resolveEmbeds(
 ): Promise<string> {
   // Bounded quantifier keeps unclosed "![[" runs linear (no quadratic backtracking)
   const embedRegex = /!\[\[([^\]]{1,1000})\]\]/g;
-  const matches = [...text.matchAll(embedRegex)];
+  const ranges = findProtectedRanges(text);
+  const matches = [...text.matchAll(embedRegex)].filter(
+    (m) => !isProtected(m.index ?? 0, ranges)
+  );
 
   if (depth >= MAX_EMBED_DEPTH) {
     // Warn only if a resolvable (non-image) embed is being left behind
@@ -188,83 +192,97 @@ export async function resolveEmbeds(
     return text;
   }
 
-  let result = text;
+  // Offset-based rebuild: each occurrence is replaced exactly once, and
+  // replacement content is never re-matched.
+  let result = "";
+  let last = 0;
 
   for (const match of matches) {
-    const fullMatch = match[0];
-
-    // Extract bare filename (strip pipe values and fragment refs) to check file type
-    const rawInner = match[1];
-    const bareFileName = rawInner.split("|")[0].split("#")[0].trim();
-
-    // Image embeds are handled by image-handler in the html-converter stage
-    if (isImageFile(bareFileName)) continue;
-
-    const parsed = parseEmbedRef(fullMatch);
-    if (!parsed) continue;
-
-    const { fileName } = parsed;
-
-    // Skip unsupported media types with warnings
-    if (isAudioFile(fileName)) {
-      warnings.add("audio", fileName, "Audio embeds not supported");
-      result = result.replace(fullMatch, "");
-      continue;
-    }
-    if (isVideoFile(fileName)) {
-      warnings.add("video", fileName, "Video embeds not supported");
-      result = result.replace(fullMatch, "");
-      continue;
-    }
-    if (isPdfFile(fileName)) {
-      warnings.add("pdf", fileName, "PDF embeds not supported");
-      result = result.replace(fullMatch, "");
-      continue;
-    }
-
-    // Circular reference protection
-    const embedKey = `${fileName}#${parsed.heading ?? ""}#${parsed.blockId ?? ""}`;
-    if (visited.has(embedKey)) {
-      warnings.add("embed", fileName, "Circular reference detected");
-      result = result.replace(fullMatch, "");
-      continue;
-    }
-
-    try {
-      const file = app.metadataCache.getFirstLinkpathDest(fileName, "");
-      if (!file) {
-        warnings.add("embed", fileName, "Referenced note not found");
-        result = result.replace(fullMatch, "");
-        continue;
-      }
-
-      let content = await app.vault.cachedRead(file);
-
-      // Extract the specific section or block if referenced
-      if (parsed.heading) {
-        content = extractHeadingSection(content, parsed.heading);
-      } else if (parsed.blockId) {
-        content = extractBlock(content, parsed.blockId);
-      }
-
-      if (!content.trim()) {
-        warnings.add("embed", fileName, "Referenced content is empty");
-        result = result.replace(fullMatch, "");
-        continue;
-      }
-
-      // Recursively resolve nested embeds in the inlined content
-      const newVisited = new Set(visited);
-      newVisited.add(embedKey);
-      content = await resolveEmbeds(content, app, warnings, depth + 1, newVisited);
-
-      result = result.replace(fullMatch, () => content);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      warnings.add("embed", fileName, `Failed to resolve: ${msg}`);
-      result = result.replace(fullMatch, "");
-    }
+    const index = match.index ?? 0;
+    const replacement = await resolveOneEmbed(match, app, warnings, depth, visited);
+    if (replacement === null) continue; // keep original text (e.g., image embeds)
+    result += text.slice(last, index) + replacement;
+    last = index + match[0].length;
   }
 
-  return result;
+  return result + text.slice(last);
+}
+
+/**
+ * Resolve a single embed match.
+ *
+ * @returns The replacement string, or null when the embed should be left
+ *          untouched (image embeds, unparseable syntax).
+ */
+async function resolveOneEmbed(
+  match: RegExpMatchArray,
+  app: App,
+  warnings: WarningCollector,
+  depth: number,
+  visited: Set<string>
+): Promise<string | null> {
+  const fullMatch = match[0];
+
+  // Extract bare filename (strip pipe values and fragment refs) to check file type
+  const bareFileName = match[1].split("|")[0].split("#")[0].trim();
+
+  // Image embeds are handled by image-handler in the html-converter stage
+  if (isImageFile(bareFileName)) return null;
+
+  const parsed = parseEmbedRef(fullMatch);
+  if (!parsed) return null;
+
+  const { fileName } = parsed;
+
+  // Skip unsupported media types with warnings
+  if (isAudioFile(fileName)) {
+    warnings.add("audio", fileName, "Audio embeds not supported");
+    return "";
+  }
+  if (isVideoFile(fileName)) {
+    warnings.add("video", fileName, "Video embeds not supported");
+    return "";
+  }
+  if (isPdfFile(fileName)) {
+    warnings.add("pdf", fileName, "PDF embeds not supported");
+    return "";
+  }
+
+  // Circular reference protection
+  const embedKey = `${fileName}#${parsed.heading ?? ""}#${parsed.blockId ?? ""}`;
+  if (visited.has(embedKey)) {
+    warnings.add("embed", fileName, "Circular reference detected");
+    return "";
+  }
+
+  try {
+    const file = app.metadataCache.getFirstLinkpathDest(fileName, "");
+    if (!file) {
+      warnings.add("embed", fileName, "Referenced note not found");
+      return "";
+    }
+
+    let content = await app.vault.cachedRead(file);
+
+    // Extract the specific section or block if referenced
+    if (parsed.heading) {
+      content = extractHeadingSection(content, parsed.heading);
+    } else if (parsed.blockId) {
+      content = extractBlock(content, parsed.blockId);
+    }
+
+    if (!content.trim()) {
+      warnings.add("embed", fileName, "Referenced content is empty");
+      return "";
+    }
+
+    // Recursively resolve nested embeds in the inlined content
+    const newVisited = new Set(visited);
+    newVisited.add(embedKey);
+    return resolveEmbeds(content, app, warnings, depth + 1, newVisited);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    warnings.add("embed", fileName, `Failed to resolve: ${msg}`);
+    return "";
+  }
 }

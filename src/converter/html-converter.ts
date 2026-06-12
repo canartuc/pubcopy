@@ -125,12 +125,19 @@ export async function convertToHtml(
   // replacements stay correct.
 
   // 1. Mermaid: strip code blocks (not supported by Medium or Substack).
-  //    Runs first because it intentionally targets whole code fences.
-  const mermaidRegex = /```mermaid\n([\s\S]*?)```/g;
-  let processed = markdown.replace(mermaidRegex, () => {
-    warnings.add("mermaid", "diagram", "Mermaid diagrams not supported, skipped");
-    return "";
-  });
+  //    Runs first because it intentionally targets whole code fences — but
+  //    only TOP-LEVEL ones (a ```mermaid example nested inside a longer
+  //    ````fence is documentation and must survive as code).
+  const mermaidRegex = /```mermaid\r?\n([\s\S]*?)```/g;
+  const fenceRanges = findProtectedRanges(markdown);
+  let processed = markdown.replace(
+    mermaidRegex,
+    (match: string, _content: string, offset: number) => {
+      if (!fenceRanges.some((r) => r.start === offset)) return match;
+      warnings.add("mermaid", "diagram", "Mermaid diagrams not supported, skipped");
+      return "";
+    }
+  );
 
   // 2. Callouts: convert > [!type] to styled blockquotes with bold label
   processed = convertCallouts(processed);
@@ -207,6 +214,8 @@ export async function convertToHtml(
 
   // 7. Inline math: $...$ (single dollar, no newlines, not preceded by \ or $)
   //    Uses a capture group instead of lookbehind for iOS < 16.4 compatibility.
+  //    Protection is anchored at the opening $ (past the one-char context
+  //    prefix), so math directly after an inline code span still renders.
   processed = await replaceAsyncOutsideProtected(
     processed,
     /(^|[^\\$])\$([^$\n]+?)\$(?!\$)/g,
@@ -214,7 +223,9 @@ export async function convertToHtml(
       elementCount++;
       const rendered = await renderInlineMath(match[2].trim(), warnings);
       return match[1] + rendered;
-    }
+    },
+    undefined,
+    (match) => (match.index ?? 0) + match[1].length
   );
 
   // === PARSE: Run the remark/rehype pipeline ===
@@ -266,8 +277,10 @@ export async function convertToHtml(
     html,
     mdImageRegex,
     async (match) => {
-      const src = match[1];
-      const alt = match[2];
+      // rehype-stringify entity-encodes attribute values (& -> &#x26;,
+      // " -> &#x22;); decode them before vault lookups and re-escaping
+      const src = decodeAttr(match[1]);
+      const alt = decodeAttr(match[2]);
       const attrs = match[3] ?? "";
       const isLocal = !src.startsWith("data:") && !src.startsWith("http:") && !src.startsWith("https:");
       // Use alt text as caption only if it's meaningful (not just the filename)
@@ -404,6 +417,32 @@ function flattenNestedLists(html: string, maxDepth: number): string {
     }
     return match;
   });
+}
+
+/** Named entities decoded from serialized HTML attribute values. */
+const ATTR_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+};
+
+/**
+ * Decode HTML character references from a serialized attribute value in a
+ * single pass (so `&amp;#x26;` decodes to the literal text `&#x26;`, never
+ * double-decodes). rehype-stringify emits hex references for special
+ * characters in attributes.
+ */
+function decodeAttr(value: string): string {
+  return value.replace(
+    /&(?:#x([0-9a-fA-F]+)|#(\d+)|(amp|lt|gt|quot|apos));/g,
+    (m, hex: string | undefined, dec: string | undefined, named: string | undefined) => {
+      if (hex) return String.fromCodePoint(parseInt(hex, 16));
+      if (dec) return String.fromCodePoint(parseInt(dec, 10));
+      return ATTR_ENTITIES[named ?? ""] ?? m;
+    }
+  );
 }
 
 /**

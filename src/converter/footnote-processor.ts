@@ -122,7 +122,13 @@ function escapeRegex(str: string): string {
  */
 function convertGfmFootnotes(html: string): string {
   let result = html;
-  const hasGfmSection = result.includes("<h2>Footnotes</h2>");
+
+  // Only rewrite the heading when GFM actually generated footnotes (the
+  // reference anchors prove it), so a user-authored "## Footnotes" heading
+  // is never touched.
+  const hasGfmSection =
+    result.includes("<h2>Footnotes</h2>") &&
+    result.includes('href="#user-content-fn');
 
   // References -> plain superscript numbers
   result = result.replace(
@@ -137,9 +143,18 @@ function convertGfmFootnotes(html: string): string {
     ""
   );
 
-  // Rename the endnotes heading to match the legacy format
+  // Rename the endnotes heading to match the legacy format. remark-rehype
+  // appends the generated section at the END of the document, so rename the
+  // LAST occurrence — earlier ones are user content.
   if (hasGfmSection) {
-    result = result.replace("<h2>Footnotes</h2>", "<hr>\n<h2>Notes</h2>");
+    const heading = "<h2>Footnotes</h2>";
+    const idx = result.lastIndexOf(heading);
+    if (idx !== -1) {
+      result =
+        result.slice(0, idx) +
+        "<hr>\n<h2>Notes</h2>" +
+        result.slice(idx + heading.length);
+    }
   }
 
   return result;

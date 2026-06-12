@@ -74,8 +74,12 @@ export async function convert(
 
   const warnings = new WarningCollector();
 
+  // Normalize line endings once so every downstream regex pass can assume
+  // \n-only input (files read from the vault may be CRLF)
+  const normalized = markdown.replace(/\r\n?/g, "\n");
+
   // Stage 1: Resolve embeds (runs before preprocessing because it needs raw ![[]] syntax)
-  let processed = await resolveEmbeds(markdown, app, warnings);
+  let processed = await resolveEmbeds(normalized, app, warnings);
 
   // Guard against embed expansion exceeding size limits
   if (processed.length > MAX_INPUT_SIZE) {

@@ -78,7 +78,7 @@ Settings > Community plugins > Pubcopy > Settings
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 24+
 - npm
 
 ### Setup

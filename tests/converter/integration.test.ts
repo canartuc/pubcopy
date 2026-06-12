@@ -193,6 +193,40 @@ describe("convert() integration", () => {
       expect(result.html).not.toContain("data:image/svg+xml");
     });
 
+    it("resolves image filenames containing & to base64 (attr entity decode)", async () => {
+      const app = createMockApp();
+      const file = new TFile("Q&A.png");
+      app.vault.addMockBinaryFile("Q&A.png", PNG_BYTES);
+      app.metadataCache.addMockLookup("Q&A.png", file);
+
+      const result = await convert("![[Q&A.png]]", MediumProfile, defaultSettings, app as never);
+      expect(result.html).toContain("data:image/png;base64,");
+      expect(result.warnings.getWarnings()).toEqual([]);
+    });
+
+    it("renders captions containing & and quotes without entity corruption", async () => {
+      const app = appWithImage();
+      const result = await convert(
+        '![[pic.png|Fish & Chips "fresh"]]',
+        SubstackProfile, defaultSettings, app as never
+      );
+      expect(result.html).toContain("<figcaption>Fish &amp; Chips &quot;fresh&quot;</figcaption>");
+      expect(result.html).not.toContain("#x26;");
+      expect(result.html).not.toContain("#x22;");
+    });
+
+    it("converts CRLF notes end-to-end (frontmatter, content, mermaid)", async () => {
+      const app = createMockApp();
+      const result = await convert(
+        "---\r\ntitle: x\r\n---\r\n# Hi\r\n\r\n```mermaid\r\ngraph TD;\r\n```\r\n\r\nDone",
+        MediumProfile, defaultSettings, app as never
+      );
+      expect(result.html).toContain("<h1>Hi</h1>");
+      expect(result.html).toContain("Done");
+      expect(result.html).not.toContain("title: x");
+      expect(result.html).not.toContain("graph TD;");
+    });
+
     it("falls back to a URL reference when the image is missing from the vault", async () => {
       const app = createMockApp();
       const result = await convert("![[missing.png]]", MediumProfile, defaultSettings, app as never);

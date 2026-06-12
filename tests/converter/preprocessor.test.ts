@@ -163,6 +163,34 @@ tags: [test]
     });
   });
 
+  describe("inline-code adjacency (regression)", () => {
+    it("converts wikilinks immediately after an inline code span", () => {
+      const result = preprocess("Use `config.yml`[[Settings Page]] now", defaultSettings);
+      expect(result).toBe("Use `config.yml`Settings Page now");
+    });
+
+    it("strips block IDs immediately after an inline code span", () => {
+      const result = preprocess("End `code` ^block-id", defaultSettings);
+      expect(result).toBe("End `code`");
+    });
+  });
+
+  describe("fence detection (regression)", () => {
+    it("does not treat a single-line ```x``` snippet as an unclosed fence", () => {
+      const input = "```a```\n\n[[link]] and #tag here";
+      const result = preprocess(input, defaultSettings);
+      expect(result).toContain("link");
+      expect(result).not.toContain("[[link]]");
+      expect(result).not.toContain("#tag");
+    });
+
+    it("recognizes fences indented up to three spaces", () => {
+      const input = "   ```\n[[inside]]\n   ```";
+      const result = preprocess(input, defaultSettings);
+      expect(result).toContain("[[inside]]");
+    });
+  });
+
   describe("frontmatter edge cases (regression)", () => {
     it("strips CRLF frontmatter", () => {
       const input = "---\r\ntitle: Test\r\n---\r\n# Hello";

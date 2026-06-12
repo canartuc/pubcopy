@@ -229,6 +229,21 @@ describe("embed-resolver", () => {
   });
 
   describe("regressions", () => {
+    it("does not resolve embeds inside code fences", async () => {
+      const app = createMockApp();
+      const file = new TFile("doc.md");
+      app.vault.addMockFile("doc.md", "Doc content");
+      app.metadataCache.addMockLookup("doc", file);
+
+      const warnings = new WarningCollector();
+      const input = "```\n![[doc]]\n```\n\n![[doc]]";
+      const result = await resolveEmbeds(input, app as never, warnings);
+      // The fenced occurrence stays literal; the outside one resolves
+      expect(result).toContain("```\n![[doc]]\n```");
+      expect(result).toContain("Doc content");
+      expect(warnings.hasWarnings()).toBe(false);
+    });
+
     it("matches block IDs exactly, not as substrings", async () => {
       const app = createMockApp();
       const file = new TFile("notes/blocks.md");

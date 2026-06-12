@@ -1,3 +1,4 @@
+import tsParser from "@typescript-eslint/parser";
 import obsidianmd from "eslint-plugin-obsidianmd";
 
 export default [
@@ -20,6 +21,25 @@ export default [
       "@typescript-eslint/no-unsafe-argument": "error",
       "no-eval": "error",
       "no-implied-eval": "error",
+    },
+  },
+  {
+    files: ["manifest.json"],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        projectService: {
+          allowDefaultProject: ["manifest.json"],
+        },
+        tsconfigRootDir: import.meta.dirname,
+        extraFileExtensions: [".json"],
+      },
+    },
+    plugins: {
+      obsidianmd,
+    },
+    rules: {
+      "obsidianmd/validate-manifest": "error",
     },
   },
   {

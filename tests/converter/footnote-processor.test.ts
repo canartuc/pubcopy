@@ -81,6 +81,28 @@ describe("footnote-processor", () => {
         expect(result).toContain("Second <em>fancy</em> content");
       });
 
+      it("leaves a user-authored Footnotes heading alone when no GFM footnotes exist", () => {
+        const html = "<h2>Footnotes</h2>\n<p>My own thoughts on footnotes.</p>";
+        const result = processFootnotes(html, MediumProfile);
+        expect(result).toContain("<h2>Footnotes</h2>");
+        expect(result).not.toContain("<h2>Notes</h2>");
+        expect(result).not.toContain("<hr>");
+      });
+
+      it("renames only the generated (last) Footnotes section, not user headings", () => {
+        const html =
+          "<h2>Footnotes</h2>\n<p>A user-authored section about footnotes.</p>\n" +
+          '<p>Ref<sup><a href="#user-content-fn-1">1</a></sup>.</p>\n' +
+          "<h2>Footnotes</h2>\n<ol>\n<li>\n" +
+          '<p>Definition <a href="#user-content-fnref-1">↩</a></p>\n' +
+          "</li>\n</ol>";
+        const result = processFootnotes(html, MediumProfile);
+        // The user's heading survives; the generated one becomes Notes
+        expect(result).toContain("<h2>Footnotes</h2>\n<p>A user-authored section");
+        expect(result).toContain("<h2>Notes</h2>");
+        expect((result.match(/<h2>Footnotes<\/h2>/g) ?? []).length).toBe(1);
+      });
+
       it("removes multi-reference back-links (↩ with counter sup)", () => {
         const html =
           '<p>A<sup><a href="#user-content-fn-1">1</a></sup>' +

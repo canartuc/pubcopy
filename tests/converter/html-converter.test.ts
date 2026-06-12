@@ -372,6 +372,53 @@ describe("html-converter", () => {
     });
   });
 
+  describe("inline-code adjacency (regression)", () => {
+    it("converts highlights immediately after an inline code span", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "Run `npm test`==now== always",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain("<strong>now</strong>");
+      expect(result.html).not.toContain("==now==");
+    });
+
+    it("renders inline math immediately after an inline code span", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "See `f`$x+1$ here",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain("katex");
+    });
+  });
+
+  describe("mermaid edge cases (regression)", () => {
+    it("keeps documented mermaid blocks nested inside an outer fence", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "````markdown\n```mermaid\ngraph TD;\n```\n````",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).toContain("graph TD;");
+      expect(warnings.getWarnings().some((w) => w.elementType === "mermaid")).toBe(false);
+    });
+
+    it("strips mermaid blocks in CRLF documents", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "Before\r\n\r\n```mermaid\r\ngraph TD;\r\n```\r\n\r\nAfter",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).not.toContain("graph TD;");
+      expect(warnings.getWarnings().some((w) => w.elementType === "mermaid")).toBe(true);
+    });
+  });
+
   describe("image captions (regression)", () => {
     it("wraps duplicate captioned remote images exactly once each (Medium)", async () => {
       const app = createMockApp();

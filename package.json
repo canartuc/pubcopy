@@ -7,7 +7,7 @@
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "deploy": "npm run build && node deploy.mjs",
-    "lint": "eslint src/",
+    "lint": "eslint src/ manifest.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cli": "bash tests/cli/run-cli-tests.sh",
