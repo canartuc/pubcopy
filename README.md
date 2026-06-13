@@ -73,6 +73,26 @@ Settings > Community plugins > Pubcopy > Settings
 | Image handling | Auto | Auto: base64 for local, URL for remote |
 | Show notification | On | Display notice after copying |
 
+## Privacy & permissions
+
+The Obsidian community store shows a **"Clipboard Access"** label for Pubcopy.
+That label is a generic notice applied to any plugin that touches the clipboard.
+Here is exactly what Pubcopy does:
+
+- **Writes only, never reads.** Pubcopy calls `navigator.clipboard.write()` to place
+  your converted note on the clipboard. It never reads the clipboard, so the label's
+  "may expose content copied from outside Obsidian" warning does not apply. That
+  warning concerns plugins that *read* clipboard contents.
+- **Only your note is copied.** The clipboard payload is built solely from the note
+  (or selection) you choose to copy, as `text/html` plus a `text/plain` fallback.
+- **Stays on your device.** Pubcopy makes no network requests. Conversion, including
+  math rendering and local image embedding, runs entirely on your machine. Remote
+  image URLs are passed through untouched, never fetched.
+
+Pubcopy is MIT-licensed open source. You don't have to take these claims on trust:
+the full source is in this repository, so anyone can read it and verify exactly what
+the plugin does.
+
 ## Development
 
 ### Prerequisites
