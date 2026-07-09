@@ -573,6 +573,20 @@ describe("html-converter", () => {
       expect(warnings.hasWarnings()).toBe(false);
     });
 
+    it("does not treat spaced currency dollars as inline math ($100 ... $100)", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "A connector costs $100 a year now. If it really costs $100 a year, models fall apart.",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      // The two dollar amounts must survive as literal text, not collapse into math.
+      expect(result.html).not.toContain("katex");
+      expect(result.html).toContain("$100 a year now");
+      expect(result.html).toContain("really costs $100 a year");
+      expect(warnings.hasWarnings()).toBe(false);
+    });
+
     it("renders inline math end-to-end with katex markup and no warnings", async () => {
       const app = createMockApp();
       const warnings = new WarningCollector();

@@ -216,9 +216,12 @@ export async function convertToHtml(
   //    Uses a capture group instead of lookbehind for iOS < 16.4 compatibility.
   //    Protection is anchored at the opening $ (past the one-char context
   //    prefix), so math directly after an inline code span still renders.
+  //    The content must not begin or end with whitespace (Obsidian/pandoc rule):
+  //    this keeps spaced currency like "$100 a year ... costs $100" from being
+  //    paired as a math span, which would strip the interior whitespace.
   processed = await replaceAsyncOutsideProtected(
     processed,
-    /(^|[^\\$])\$([^$\n]+?)\$(?!\$)/g,
+    /(^|[^\\$])\$([^\s$\n](?:[^$\n]*?[^\s$\n])?)\$(?!\$)/g,
     async (match) => {
       elementCount++;
       const rendered = await renderInlineMath(match[2].trim(), warnings);
