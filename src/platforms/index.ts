@@ -55,7 +55,8 @@ export interface PlatformProfile {
   supportsTaskLists: boolean;
   /**
    * Whether the platform supports HTML `<table>` elements on paste.
-   * When false, the post-pass rewrites each table per `settings.tableHandling`
+   * When false, a tree transformation between sanitization and serialization
+   * rewrites each table per `settings.tableHandling`
    * (bulleted list or monospace code block).
    */
   supportsTableHtml: boolean;

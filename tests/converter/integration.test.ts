@@ -249,6 +249,19 @@ describe("convert() integration", () => {
       expect(stripHtmlTags("<p>&#x1F600;</p>")).toBe("😀");
     });
 
+    it("leaves out-of-range numeric entities alone instead of throwing", () => {
+      // String.fromCodePoint throws above U+10FFFF; aborting here would kill
+      // the whole clipboard write
+      expect(stripHtmlTags("<p>&#x110000;</p>")).toBe("&#x110000;");
+      expect(stripHtmlTags("<p>&#1114112;</p>")).toBe("&#1114112;");
+      expect(stripHtmlTags("<p>&#99999999999999;</p>")).toBe("&#99999999999999;");
+    });
+
+    it("leaves surrogate-range references alone rather than emitting a lone surrogate", () => {
+      expect(stripHtmlTags("<p>&#xD800;</p>")).toBe("&#xD800;");
+      expect(stripHtmlTags("<p>&#xDFFF;</p>")).toBe("&#xDFFF;");
+    });
+
     it("decodes basic named entities", () => {
       expect(stripHtmlTags("<p>A &amp; B &lt;tag&gt; &quot;q&quot; &apos;a&apos;</p>"))
         .toBe("A & B <tag> \"q\" 'a'");

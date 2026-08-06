@@ -31,13 +31,24 @@ const NAMED_ENTITIES: Record<string, string> = {
   nbsp: " ",
 };
 
-/** Decode HTML character references in a single pass. */
+/**
+ * Decode HTML character references in a single pass.
+ *
+ * Out-of-range numeric references are left as written: `String.fromCodePoint`
+ * throws above U+10FFFF, which would abort clipboard generation entirely, and
+ * the surrogate range would yield an unpaired code unit.
+ */
 function decodeEntities(text: string): string {
   return text.replace(
     /&(?:#x([0-9a-fA-F]+)|#(\d+)|(amp|lt|gt|quot|apos|nbsp));/g,
     (_m, hex: string | undefined, dec: string | undefined, named: string | undefined) => {
-      if (hex) return String.fromCodePoint(parseInt(hex, 16));
-      if (dec) return String.fromCodePoint(parseInt(dec, 10));
+      const digits = hex ?? dec;
+      if (digits !== undefined) {
+        const code = parseInt(digits, hex ? 16 : 10);
+        const isSurrogate = code >= 0xd800 && code <= 0xdfff;
+        if (!Number.isFinite(code) || code > 0x10ffff || isSurrogate) return _m;
+        return String.fromCodePoint(code);
+      }
       return NAMED_ENTITIES[named ?? ""] ?? _m;
     }
   );

@@ -586,6 +586,18 @@ describe("html-converter", () => {
       expect(warnings.getWarnings().some((w) => w.reason === "Empty table removed")).toBe(true);
     });
 
+    it("keeps a literal pipe in a cell and still aligns the columns", async () => {
+      const app = createMockApp();
+      const md = "| A | B |\n| --- | --- |\n| c\\|d | x |";
+      const result = await convertToHtml(md, MediumProfile, codeBlockSettings, app as never, new WarningCollector());
+      const block = /<pre><code>([\s\S]*?)<\/code><\/pre>/.exec(result.html)?.[1] ?? "";
+      const lines = block.split("\n");
+      // Written as authored (no "\|" escape leaking into what the reader sees)
+      expect(lines[2]).toBe("| c|d | x   |");
+      // Widths are measured on the printed text, so every row stays flush
+      expect(new Set(lines.map((l) => l.length)).size).toBe(1);
+    });
+
     it("keeps image alt text and footnote markers in code-block mode", async () => {
       const app = createMockApp();
       const md = "| A | B |\n|---|---|\n| ![cap](https://example.com/i.png) | x[^1] |\n\n[^1]: note";

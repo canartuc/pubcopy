@@ -664,8 +664,15 @@ function tableToList(t: ParsedTable): Element {
 
 /**
  * Render a parsed table as a column-aligned monospace table inside a code
- * block. Headed tables come out as valid GFM; headerless ones start with the
- * delimiter row, which GFM does not accept but which reads correctly as text.
+ * block.
+ *
+ * The output is for reading, not for re-parsing, so it is shaped like GFM
+ * without promising to be valid GFM: a headerless table starts at the
+ * delimiter row, and a cell containing "|" is left as the author wrote it
+ * rather than escaped to `\|`, which would show readers a backslash they
+ * never typed. Column widths are measured on the same text that is printed,
+ * so monospace alignment holds either way.
+ *
  * Emits `<pre><code>` and lets the later code-wrapper pass rewrite it for
  * pre-only platforms.
  */
