@@ -10,6 +10,12 @@
  * HTML or markdown before entering the pipeline. This includes callouts,
  * highlights, task lists, image embeds, mermaid blocks, and math expressions.
  *
+ * **Tree transformations** (after sanitization, before serialization):
+ * Tables are degraded to lists or code blocks for platforms whose editors
+ * drop `<table>` on paste. This happens on the hast tree because attribute
+ * values may contain literal `<` and `>`, which no string scanner can tell
+ * apart from markup.
+ *
  * **Post-pass transformations** (after rehype serialization):
  * Platform-specific adjustments applied to the HTML output: heading level
  * capping, list nesting flattening, code block wrapper changes, and
@@ -22,6 +28,8 @@
  */
 
 import { unified } from "unified";
+import type { Plugin } from "unified";
+import type { Element, ElementContent, Root, RootContent } from "hast";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkRehype from "remark-rehype";
@@ -29,7 +37,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
 import type { App } from "obsidian";
-import type { PubcopySettings } from "../settings";
+import type { PubcopySettings, TableHandling } from "../settings";
 import type { PlatformProfile } from "../platforms";
 import { WarningCollector } from "../utils/errors";
 import { escapeHtml } from "../utils/html";
@@ -71,8 +79,8 @@ const SANITIZE_SCHEMA = {
     img: ["src", "alt", "width", "height"],
     code: ["className"],
     pre: ["className"],
-    td: ["style"],
-    th: ["style"],
+    td: ["style", "align"],
+    th: ["style", "align"],
     div: ["className"],
     span: ["className", "style"],
     "*": [],
@@ -100,6 +108,7 @@ interface ConvertResult {
  * 2. Parse: unified/remark-parse/remark-gfm for standard markdown.
  * 3. Sanitize: rehype-sanitize strips dangerous HTML.
  * 4. Serialize: rehype-stringify produces HTML string.
+ * 4. Degrade: Rewrite tables for platforms without table support, then serialize.
  * 5. Post-pass: Apply platform-specific transformations (heading cap, list flatten, code wrapper).
  *
  * @param markdown - Preprocessed markdown (Obsidian syntax already stripped by preprocessor).
@@ -241,6 +250,13 @@ export async function convertToHtml(
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
     .use(rehypeSanitize, SANITIZE_SCHEMA)
+    // Table degradation runs on the sanitized tree, before serialization:
+    // see rehypeDegradeTables for why this cannot be done on the HTML string.
+    .use(rehypeDegradeTables, {
+      enabled: !profile.supportsTableHtml,
+      mode: settings.tableHandling,
+      warnings,
+    })
     .use(rehypeStringify);
 
   const file = await processor.process(processed);
@@ -420,6 +436,290 @@ function flattenNestedLists(html: string, maxDepth: number): string {
     }
     return match;
   });
+}
+
+/** Column alignment of a table column. */
+type TableAlign = "left" | "center" | "right" | null;
+
+/** Structured content of one hast `<table>` element. */
+interface ParsedTable {
+  /** Children of each `<th>` in the header row; empty for headerless tables. */
+  headers: ElementContent[][];
+  /** Per-column alignment (header row wins, else first body row). */
+  aligns: TableAlign[];
+  /** Children of each body cell, row-major. */
+  rows: ElementContent[][][];
+}
+
+/** Options for the table degradation plugin. */
+interface DegradeTablesOptions {
+  /** False for platforms that render `<table>` natively (Substack). */
+  enabled: boolean;
+  /** Which replacement representation to build. */
+  mode: TableHandling;
+  /** Shared warning collector. */
+  warnings: WarningCollector;
+}
+
+/**
+ * Rewrite every `<table>` into a representation the target platform accepts
+ * (bulleted list or monospace code block).
+ *
+ * This runs on the hast tree rather than on serialized HTML: attribute values
+ * may legally contain literal `<` and `>` (hast-util-to-html only escapes
+ * quotes and ampersands there), so text such as an image alt of `</table>`
+ * would be indistinguishable from real markup to a string scanner. Working on
+ * the tree also removes the need for size limits and a nesting loop.
+ *
+ * Placed after rehype-sanitize so cell contents are already allowlisted, and
+ * before rehype-stringify so serialization escapes everything it emits.
+ */
+const rehypeDegradeTables: Plugin<[DegradeTablesOptions], Root> =
+  (options) => (tree: Root) => {
+    if (!options.enabled) return;
+    degradeNodes(tree.children, options);
+  };
+
+/**
+ * Replace `<table>` elements in `nodes` (depth first, so nested tables
+ * degrade before the table containing them). Iterates in reverse so removing
+ * an empty table does not skip its predecessor.
+ */
+function degradeNodes(
+  nodes: Array<RootContent | ElementContent>,
+  options: DegradeTablesOptions
+): void {
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const node = nodes[i];
+    if (node.type !== "element") continue;
+    degradeNodes(node.children, options);
+    if (node.tagName !== "table") continue;
+
+    const parsed = parseTable(node);
+    if (!parsed) {
+      options.warnings.add("table", "table", "Empty table removed");
+      nodes.splice(i, 1);
+      continue;
+    }
+    options.warnings.add(
+      "table",
+      "table",
+      options.mode === "list"
+        ? "Tables are not supported on this platform; converted to a list"
+        : "Tables are not supported on this platform; converted to a code block"
+    );
+    nodes[i] =
+      options.mode === "list" ? tableToList(parsed) : tableToCodeBlock(parsed);
+  }
+}
+
+/** Build a hast element. */
+function el(tagName: string, children: ElementContent[]): Element {
+  return { type: "element", tagName, properties: {}, children };
+}
+
+/** Build a hast text node. */
+function textNode(value: string): ElementContent {
+  return { type: "text", value };
+}
+
+/** Collect `<tr>` elements of a table, descending through thead/tbody/tfoot. */
+function collectRows(table: Element): Element[] {
+  const rows: Element[] = [];
+  const walk = (nodes: ElementContent[]): void => {
+    for (const node of nodes) {
+      if (node.type !== "element") continue;
+      if (node.tagName === "tr") rows.push(node);
+      else if (["thead", "tbody", "tfoot"].includes(node.tagName)) walk(node.children);
+    }
+  };
+  walk(table.children);
+  return rows;
+}
+
+/**
+ * Split a table into headers, per-column alignment, and body rows.
+ * Returns null when the table contains no cells at all.
+ */
+function parseTable(table: Element): ParsedTable | null {
+  const headers: ElementContent[][] = [];
+  let aligns: TableAlign[] = [];
+  const rows: ElementContent[][][] = [];
+
+  for (const row of collectRows(table)) {
+    const cells = row.children.filter(
+      (c): c is Element =>
+        c.type === "element" && (c.tagName === "th" || c.tagName === "td")
+    );
+    if (cells.length === 0) continue;
+    const cellAligns = cells.map(cellAlign);
+    if (headers.length === 0 && rows.length === 0 && cells.every((c) => c.tagName === "th")) {
+      headers.push(...cells.map((c) => c.children));
+      aligns = cellAligns;
+    } else {
+      rows.push(cells.map((c) => c.children));
+      // Headerless tables take alignment from the first body row
+      if (aligns.length === 0) aligns = cellAligns;
+    }
+  }
+
+  if (headers.length === 0 && rows.length === 0) return null;
+  return { headers, aligns, rows };
+}
+
+/** Read the `align` attribute of a cell. */
+function cellAlign(cell: Element): TableAlign {
+  const value = cell.properties?.align;
+  return value === "left" || value === "center" || value === "right" ? value : null;
+}
+
+/**
+ * Flatten a cell to plain text for the code-block representation.
+ *
+ * Images contribute their alt text and footnote references keep their `[^n]`
+ * marker, so neither disappears silently the way tag stripping would drop them.
+ */
+function nodeText(nodes: ElementContent[]): string {
+  let text = "";
+  for (const node of nodes) {
+    if (node.type === "text") {
+      text += node.value;
+    } else if (node.type === "element") {
+      if (node.tagName === "br") text += " ";
+      else if (node.tagName === "img") text += imageAlt(node);
+      else if (node.tagName === "sup" && isFootnoteRef(node)) text += `[^${nodeText(node.children)}]`;
+      else text += nodeText(node.children);
+    }
+  }
+  return text;
+}
+
+/** Alt text of an image, or a placeholder when it has none. */
+function imageAlt(node: Element): string {
+  const alt = node.properties?.alt;
+  return typeof alt === "string" && alt.trim() ? alt : "[image]";
+}
+
+/** Whether a `<sup>` wraps a GFM footnote reference link. */
+function isFootnoteRef(node: Element): boolean {
+  return node.children.some(
+    (c) =>
+      c.type === "element" &&
+      c.tagName === "a" &&
+      typeof c.properties?.href === "string" &&
+      c.properties.href.startsWith("#user-content-fn")
+  );
+}
+
+/** Deep-copy cell content so header nodes are not shared between rows. */
+function cloneNodes(nodes: ElementContent[]): ElementContent[] {
+  return nodes.map((node) => structuredClone(node));
+}
+
+/**
+ * Render a parsed table as a bulleted list, one item per body row, with
+ * cells as "<strong>Header:</strong> value" pairs.
+ *
+ * Cell nodes are reused as-is: they are already-sanitized hast, and
+ * rehype-stringify escapes their text on the way out.
+ *
+ * If Medium's paste handler is ever found to drop <br> inside <li>, switch
+ * the row serializer to one <p> per row; only this function changes.
+ */
+function tableToList(t: ParsedTable): Element {
+  if (t.rows.length === 0) {
+    // Header-only table: a single bold line
+    const children: ElementContent[] = [];
+    t.headers.forEach((header, i) => {
+      if (i > 0) children.push(textNode(" | "));
+      children.push(...header);
+    });
+    return el("p", [el("strong", children)]);
+  }
+
+  const items = t.rows.map((row) => {
+    const parts: ElementContent[][] = [];
+    row.forEach((cell, i) => {
+      const header = t.headers[i];
+      const hasLabel = header !== undefined && nodeText(header).trim() !== "";
+      const hasValue = nodeText(cell).trim() !== "";
+      if (hasLabel) {
+        const label = el("strong", [...cloneNodes(header), textNode(":")]);
+        parts.push(hasValue ? [label, textNode(" "), ...cell] : [label, textNode(" \u2014")]);
+      } else if (hasValue) {
+        parts.push([...cell]);
+      }
+    });
+
+    const children: ElementContent[] = [];
+    parts.forEach((part, i) => {
+      if (i > 0) children.push(el("br", []));
+      children.push(...part);
+    });
+    return el("li", children);
+  });
+
+  return el("ul", items);
+}
+
+/**
+ * Render a parsed table as a column-aligned monospace table inside a code
+ * block. Headed tables come out as valid GFM; headerless ones start with the
+ * delimiter row, which GFM does not accept but which reads correctly as text.
+ * Emits `<pre><code>` and lets the later code-wrapper pass rewrite it for
+ * pre-only platforms.
+ */
+function tableToCodeBlock(t: ParsedTable): Element {
+  const toPlain = (nodes: ElementContent[]): string =>
+    nodeText(nodes).replace(/\s{1,1000}/g, " ").trim();
+
+  const headerTexts = t.headers.map(toPlain);
+  const rowTexts = t.rows.map((r) => r.map(toPlain));
+  const colCount = Math.max(headerTexts.length, ...rowTexts.map((r) => r.length), 1);
+
+  const widths: number[] = [];
+  for (let i = 0; i < colCount; i++) {
+    // Floor of 3 keeps the "---" delimiter (and ":-:" centered form) valid
+    let w = 3;
+    if (headerTexts[i]) w = Math.max(w, headerTexts[i].length);
+    for (const r of rowTexts) if (r[i]) w = Math.max(w, r[i].length);
+    widths.push(w);
+  }
+
+  const pad = (text: string, i: number): string => {
+    const width = widths[i];
+    const align = t.aligns[i] ?? null;
+    if (align === "right") return text.padStart(width);
+    if (align === "center") {
+      const total = width - text.length;
+      const left = Math.floor(total / 2);
+      return " ".repeat(left) + text + " ".repeat(total - left);
+    }
+    return text.padEnd(width);
+  };
+
+  const line = (cells: string[]): string => {
+    const padded: string[] = [];
+    for (let i = 0; i < colCount; i++) padded.push(pad(cells[i] ?? "", i));
+    return `| ${padded.join(" | ")} |`;
+  };
+
+  const separator = widths
+    .map((w, i) => {
+      const align = t.aligns[i] ?? null;
+      if (align === "right") return `${"-".repeat(w - 1)}:`;
+      if (align === "center") return `:${"-".repeat(w - 2)}:`;
+      if (align === "left") return `:${"-".repeat(w - 1)}`;
+      return "-".repeat(w);
+    })
+    .join(" | ");
+
+  const lines: string[] = [];
+  if (headerTexts.length > 0) lines.push(line(headerTexts));
+  lines.push(`| ${separator} |`);
+  for (const r of rowTexts) lines.push(line(r));
+
+  return el("pre", [el("code", [textNode(lines.join("\n"))])]);
 }
 
 /** Named entities decoded from serialized HTML attribute values. */

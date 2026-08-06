@@ -11,6 +11,7 @@ const defaultSettings: PubcopySettings = {
   stripTags: true,
   stripWikilinks: true,
   imageHandling: "auto",
+  tableHandling: "list",
   showNotification: true,
 };
 
@@ -252,6 +253,34 @@ describe("convert() integration", () => {
       expect(stripHtmlTags("<p>A &amp; B &lt;tag&gt; &quot;q&quot; &apos;a&apos;</p>"))
         .toBe("A & B <tag> \"q\" 'a'");
     });
+
+    it("separates table cells and rows in plain text", () => {
+      expect(
+        stripHtmlTags(
+          "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>"
+        )
+      ).toBe("A | B\n1 | 2");
+    });
+
+    it("ignores the whitespace authored HTML puts between table tags", () => {
+      expect(
+        stripHtmlTags(
+          "<table>\n  <tr>\n    <th>A</th>\n    <th>B</th>\n  </tr>\n  <tr>\n    <td>1</td>\n    <td>2</td>\n  </tr>\n</table>"
+        )
+      ).toBe("A | B\n1 | 2");
+    });
+
+    it("keeps a row on one line when a cell contains a break or a list", () => {
+      expect(stripHtmlTags("<table><tr><td>x<br>y</td><td>z</td></tr></table>")).toBe("x y | z");
+      expect(
+        stripHtmlTags("<table><tr><td><ul><li>a</li><li>b</li></ul></td><td>z</td></tr></table>")
+      ).toBe("a b | z");
+    });
+
+    it("does not treat markup inside an attribute value as a tag boundary", () => {
+      expect(stripHtmlTags('<p><img src="x.png" alt="a > b"> tail</p>')).toBe("tail");
+      expect(stripHtmlTags('<table><tr><td><a title="</td></tr>">x</a></td><td>y</td></tr></table>')).toBe("x | y");
+    });
   });
 
   describe("plainText generation", () => {
@@ -287,6 +316,33 @@ describe("convert() integration", () => {
         app as never
       );
       expect(result.plainText).toContain("A & B");
+    });
+
+    const cveTable = [
+      "| Identifier | What the advisory claimed | What the source code showed |",
+      "|---|---|---|",
+      "| CVE-2026-51296 | Use-after-free at lines 3555 and 3575 of json.c in version 3.41.0 | That file is 2,706 lines long |",
+      "| CVE-2026-51302 | Use-after-free in exprComputeOperands() in version 3.41.0 | The function did not exist until mid-2025 |",
+    ].join("\n");
+
+    it("produces labeled table lines for Medium (regression: no run-on cells)", async () => {
+      const app = createMockApp();
+      const result = await convert(cveTable, MediumProfile, defaultSettings, app as never);
+      expect(result.plainText).toContain("Identifier: CVE-2026-51296");
+      expect(result.plainText).toContain("What the source code showed: That file is 2,706 lines long");
+      expect(result.plainText).not.toContain("IdentifierWhat the advisory claimed");
+    });
+
+    it("produces pipe-separated table rows for Substack", async () => {
+      const app = createMockApp();
+      const result = await convert(cveTable, SubstackProfile, defaultSettings, app as never);
+      expect(result.plainText).toContain(
+        "Identifier | What the advisory claimed | What the source code showed"
+      );
+      expect(result.plainText).toContain(
+        "CVE-2026-51296 | Use-after-free at lines 3555 and 3575 of json.c in version 3.41.0 | That file is 2,706 lines long"
+      );
+      expect(result.plainText).not.toContain("IdentifierWhat the advisory claimed");
     });
   });
 

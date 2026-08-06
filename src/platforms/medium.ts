@@ -10,6 +10,7 @@
  * - No native footnote support (must be converted to superscript + endnotes).
  * - No native highlight (`<mark>`) support.
  * - No native task list checkbox support.
+ * - No HTML table support on paste; tables are degraded to lists or code blocks.
  * - `<figure>/<figcaption>` for image captions is stripped;
  *   captions are output as italic paragraphs below the image instead.
  */
@@ -25,5 +26,5 @@ export const MediumProfile: PlatformProfile = {
   footnoteStrategy: "superscript-endnotes",
   supportsHighlight: false,
   supportsTaskLists: false,
-  supportsTableHtml: true,
+  supportsTableHtml: false,
 };

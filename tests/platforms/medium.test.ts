@@ -33,4 +33,8 @@ describe("MediumProfile", () => {
   it("does not support task lists", () => {
     expect(MediumProfile.supportsTaskLists).toBe(false);
   });
+
+  it("does not support HTML tables", () => {
+    expect(MediumProfile.supportsTableHtml).toBe(false);
+  });
 });

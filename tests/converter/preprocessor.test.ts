@@ -7,6 +7,7 @@ const defaultSettings: PubcopySettings = {
   stripTags: true,
   stripWikilinks: true,
   imageHandling: "auto",
+  tableHandling: "list",
   showNotification: true,
 };
 

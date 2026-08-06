@@ -109,6 +109,12 @@ read_vault_file() {
   cat "$VAULT_PATH/$1" 2>/dev/null || echo ""
 }
 
+# Set one plugin setting on the live plugin instance.
+# Args: $1=setting key, $2=value (string)
+set_setting() {
+  obsidian_eval "app.plugins.plugins['pubcopy'].settings['$1'] = '$2'; 'ok'" >/dev/null
+}
+
 # Assert that a string contains a substring
 assert_contains() {
   local haystack="$1" needle="$2" label="$3"
@@ -245,6 +251,26 @@ assert_not_contains "$HTML" "title: Test Note" "Frontmatter stripped"
 assert_contains "$HTML" "wikilink" "Wikilink text preserved"
 assert_not_contains "$HTML" "[[wikilink]]" "Wikilink syntax stripped"
 assert_not_contains "$HTML" "#tag" "Tag stripped"
+assert_not_contains "$HTML" "<table>" "Table degraded for Medium"
+assert_contains "$HTML" "<strong>Col A:</strong> one" "Table row as labeled list item"
+assert_contains "$PLAIN" "Col A: one" "Plain text keeps cell separators"
+
+# ---------- Test 1b: Table handling setting (code-block mode) ----------
+
+log "Test: Table handling setting (code-block mode)"
+
+set_setting "tableHandling" "code-block"
+run_conversion "pubcopy-test-basic" "pubcopy:copy-for-medium" "basic_codeblock"
+HTML=$(read_vault_file "${OUTPUT_PREFIX}_basic_codeblock.html")
+PLAIN=$(read_vault_file "${OUTPUT_PREFIX}_basic_codeblock.txt")
+set_setting "tableHandling" "list"
+
+assert_nonempty "$HTML" "Code-block mode output is non-empty"
+assert_not_contains "$HTML" "<table>" "Table degraded in code-block mode"
+assert_not_contains "$HTML" "<strong>Col A:</strong>" "Not using list mode"
+assert_contains "$HTML" "| Col A | Col B |" "Monospace table header rendered"
+assert_contains "$HTML" "| :---- | ----: |" "Column alignment preserved"
+assert_contains "$PLAIN" "| one   |   two |" "Aligned row present in plain text"
 
 # ---------- Test 2: Security / XSS prevention ----------
 
@@ -290,6 +316,8 @@ HTML=$(read_vault_file "${OUTPUT_PREFIX}_basic_substack.html")
 assert_nonempty "$HTML" "Substack output is non-empty"
 assert_contains "$HTML" "<pre " "Code blocks use <pre>"
 assert_not_contains "$HTML" "<pre><code" "No <pre><code> wrapper (pre-only mode)"
+assert_contains "$HTML" "<table>" "Table kept for Substack"
+assert_contains "$HTML" 'align="right"' "Table alignment preserved"
 
 # ---------- Test 5: Markdown output ----------
 

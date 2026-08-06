@@ -17,4 +17,8 @@ describe("MarkdownProfile", () => {
   it("allows unlimited list nesting", () => {
     expect(MarkdownProfile.maxListNestingDepth).toBe(Infinity);
   });
+
+  it("supports HTML tables", () => {
+    expect(MarkdownProfile.supportsTableHtml).toBe(true);
+  });
 });

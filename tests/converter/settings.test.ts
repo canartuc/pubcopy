@@ -71,12 +71,17 @@ describe("settings", () => {
     expect(DEFAULT_SETTINGS.showNotification).toBe(true);
   });
 
-  it("has exactly the 5 documented keys with current defaults (drift guard)", () => {
+  it("has correct default for tableHandling", () => {
+    expect(DEFAULT_SETTINGS.tableHandling).toBe("list");
+  });
+
+  it("has exactly the 6 documented keys with current defaults (drift guard)", () => {
     expect(DEFAULT_SETTINGS).toEqual({
       stripFrontmatter: true,
       stripTags: true,
       stripWikilinks: true,
       imageHandling: "auto",
+      tableHandling: "list",
       showNotification: true,
     });
     expect(Object.keys(DEFAULT_SETTINGS).sort()).toEqual([
@@ -85,6 +90,7 @@ describe("settings", () => {
       "stripFrontmatter",
       "stripTags",
       "stripWikilinks",
+      "tableHandling",
     ]);
   });
 });

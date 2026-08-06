@@ -18,6 +18,13 @@ import type PubcopyPlugin from "./main";
  */
 export type ImageHandling = "auto" | "always-base64" | "always-url";
 
+/**
+ * How to render tables for platforms that do not support HTML tables (Medium).
+ * - `list`: One bullet per row, cells as "**Header:** value" pairs.
+ * - `code-block`: Column-aligned monospace table inside a code block.
+ */
+export type TableHandling = "list" | "code-block";
+
 /** All user-configurable settings for Pubcopy. */
 export interface PubcopySettings {
   /** Remove YAML frontmatter block from output. */
@@ -28,6 +35,8 @@ export interface PubcopySettings {
   stripWikilinks: boolean;
   /** How to handle local and remote images. */
   imageHandling: ImageHandling;
+  /** How to render tables on platforms without table support (Medium). */
+  tableHandling: TableHandling;
   /** Show an Obsidian Notice after successful copy. */
   showNotification: boolean;
 }
@@ -38,6 +47,7 @@ export const DEFAULT_SETTINGS: PubcopySettings = {
   stripTags: true,
   stripWikilinks: true,
   imageHandling: "auto",
+  tableHandling: "list",
   showNotification: true,
 };
 
@@ -103,6 +113,20 @@ export class PubcopySettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.imageHandling)
           .onChange(async (value) => {
             this.plugin.settings.imageHandling = value as ImageHandling;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Table handling")
+      .setDesc("How to convert tables for platforms that do not support them")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("list", "Bulleted list (one bullet per row)")
+          .addOption("code-block", "Monospace table in a code block")
+          .setValue(this.plugin.settings.tableHandling)
+          .onChange(async (value) => {
+            this.plugin.settings.tableHandling = value as TableHandling;
             await this.plugin.saveSettings();
           })
       );

@@ -15,6 +15,10 @@ This is **bold** and *italic* text.
 
 > This is a blockquote
 
+| Col A | Col B |
+| :---- | ----: |
+| one   | two   |
+
 ```python
 def hello():
     print('world')
