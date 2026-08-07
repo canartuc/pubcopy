@@ -25,4 +25,8 @@ describe("SubstackProfile", () => {
   it("uses native footnotes", () => {
     expect(SubstackProfile.footnoteStrategy).toBe("native");
   });
+
+  it("supports HTML tables", () => {
+    expect(SubstackProfile.supportsTableHtml).toBe(true);
+  });
 });

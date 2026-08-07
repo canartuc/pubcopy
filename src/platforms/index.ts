@@ -53,7 +53,12 @@ export interface PlatformProfile {
   supportsHighlight: boolean;
   /** Whether the platform supports interactive task list checkboxes. If false, uses unicode characters. */
   supportsTaskLists: boolean;
-  /** Whether the platform supports HTML `<table>` elements on paste. */
+  /**
+   * Whether the platform supports HTML `<table>` elements on paste.
+   * When false, a tree transformation between sanitization and serialization
+   * rewrites each table per `settings.tableHandling`
+   * (bulleted list or monospace code block).
+   */
   supportsTableHtml: boolean;
 }
 

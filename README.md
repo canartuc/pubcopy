@@ -29,15 +29,19 @@ Three ways to trigger:
 | **Right-click** in editor > Pubcopy submenu | Copies selected text (or entire note if no selection) |
 | **Three-dot menu** (top-right of note) > Pubcopy submenu | Copies entire note |
 
-Each method offers two options:
+Each method offers three options:
 - **Copy for Medium**
 - **Copy for Substack**
+- **Copy as Markdown** — clean markdown (Obsidian syntax stripped), for anywhere else
 
-After copying, paste (`Cmd/Ctrl+V`) into the Medium or Substack editor.
+After copying, paste (`Cmd/Ctrl+V`) into the target editor.
 
 ## What gets converted
 
 56 Obsidian markdown elements are handled:
+
+Medium and Substack receive HTML. "Copy as Markdown" returns cleaned markdown
+instead, so the HTML-specific rows below do not apply to it.
 
 | Element | Medium | Substack |
 |---------|--------|----------|
@@ -49,7 +53,7 @@ After copying, paste (`Cmd/Ctrl+V`) into the Medium or Substack editor.
 | Task lists `- [ ]` | Unicode checkboxes | Unicode checkboxes |
 | Callouts `> [!note]` | Styled blockquote with label | Styled blockquote with label |
 | Code blocks (with language) | `<pre><code>` | `<pre>` |
-| Tables | HTML table | HTML table |
+| Tables | Bulleted list or code block (setting) | HTML table (with alignment) |
 | Images (local) | Base64 embedded | Base64 embedded |
 | Images (remote URL) | URL passthrough | URL passthrough |
 | Image captions | Italic text below image | `<figcaption>` |
@@ -68,8 +72,8 @@ Settings > Community plugins > Pubcopy > Settings
 | Strip frontmatter | On | Remove YAML frontmatter |
 | Strip tags | On | Remove `#tag` references |
 | Strip wikilinks | On | Convert `[[links]]` to plain text |
-| Mermaid format | SVG | SVG or PNG (for future use) |
 | Image handling | Auto | Auto: base64 for local, URL for remote |
+| Table handling | Bulleted list | How tables are converted for Medium: bulleted list or monospace code block |
 | Show notification | On | Display notice after copying |
 
 ## Privacy & permissions

@@ -23,6 +23,7 @@ import type { PubcopySettings } from "../settings";
 import type { PlatformProfile } from "../platforms";
 import { WarningCollector } from "../utils/errors";
 import { PubcopyError } from "../utils/errors";
+import { stripHtmlTags } from "../utils/html";
 import { preprocess } from "./preprocessor";
 import { resolveEmbeds } from "./embed-resolver";
 import { convertToHtml } from "./html-converter";
@@ -126,45 +127,7 @@ export async function convert(
   };
 }
 
-/** Named HTML entities decoded in plain-text output. */
-const NAMED_ENTITIES: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-};
-
-/**
- * Strip HTML tags and decode entities to produce a plain-text version.
- *
- * Used as the `text/plain` clipboard entry so pasting into plain-text
- * editors produces readable content instead of raw HTML.
- *
- * Entities are decoded in a SINGLE pass so sequences like `&amp;lt;`
- * (the literal text "&lt;") are never double-decoded, and numeric
- * references use `String.fromCodePoint` so astral-plane characters
- * (e.g. emoji) survive intact.
- *
- * Exported for direct testing.
- */
-export function stripHtmlTags(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n\n")
-    .replace(/<\/h[1-6]>/gi, "\n\n")
-    .replace(/<\/li>/gi, "\n")
-    .replace(/<hr\s*\/?>/gi, "\n---\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(
-      /&(?:#x([0-9a-fA-F]+)|#(\d+)|(amp|lt|gt|quot|apos|nbsp));/g,
-      (_m, hex: string | undefined, dec: string | undefined, named: string | undefined) => {
-        if (hex) return String.fromCodePoint(parseInt(hex, 16));
-        if (dec) return String.fromCodePoint(parseInt(dec, 10));
-        return NAMED_ENTITIES[named ?? ""] ?? _m;
-      }
-    )
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
+// stripHtmlTags lives in ../utils/html so the table code-block serializer in
+// html-converter can use it without an import cycle; re-exported here to keep
+// the existing public API.
+export { stripHtmlTags };

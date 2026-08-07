@@ -11,6 +11,7 @@ const defaultSettings: PubcopySettings = {
   stripTags: true,
   stripWikilinks: true,
   imageHandling: "auto",
+  tableHandling: "list",
   showNotification: true,
 };
 
@@ -458,22 +459,18 @@ describe("html-converter", () => {
   describe("GFM tables", () => {
     const tableMd = "| Name | Value |\n| :--- | ----: |\n| foo | 1 |\n| bar | 2 |";
 
-    it("renders full table structure that survives sanitization for Medium", async () => {
+    it("degrades tables to a bulleted list for Medium (no table paste support)", async () => {
       const app = createMockApp();
       const warnings = new WarningCollector();
       const result = await convertToHtml(tableMd, MediumProfile, defaultSettings, app as never, warnings);
-      expect(result.html).toContain("<table>");
-      expect(result.html).toContain("<thead>");
-      expect(result.html).toContain("<tbody>");
-      expect(result.html).toContain("<tr>");
-      expect(result.html).toContain("<th>Name</th>");
-      expect(result.html).toContain("<th>Value</th>");
-      expect(result.html).toContain("<td>foo</td>");
-      expect(result.html).toContain("<td>2</td>");
-      expect(result.html).toContain("</table>");
+      expect(result.html).not.toContain("<table>");
+      expect(result.html).not.toContain("<td");
+      expect(result.html).toContain("<li><strong>Name:</strong> foo<br><strong>Value:</strong> 1</li>");
+      expect(result.html).toContain("<strong>Name:</strong> bar");
+      expect(warnings.getWarnings().some((w) => w.elementType === "table")).toBe(true);
     });
 
-    it("renders full table structure that survives sanitization for Substack", async () => {
+    it("renders full table structure with alignment for Substack", async () => {
       const app = createMockApp();
       const warnings = new WarningCollector();
       const result = await convertToHtml(tableMd, SubstackProfile, defaultSettings, app as never, warnings);
@@ -481,10 +478,198 @@ describe("html-converter", () => {
       expect(result.html).toContain("<thead>");
       expect(result.html).toContain("<tbody>");
       expect(result.html).toContain("<tr>");
-      expect(result.html).toContain("<th>Name</th>");
-      expect(result.html).toContain("<td>bar</td>");
-      expect(result.html).toContain("<td>1</td>");
+      expect(result.html).toContain('<th align="left">Name</th>');
+      expect(result.html).toContain('<th align="right">Value</th>');
+      expect(result.html).toContain('<td align="left">bar</td>');
+      expect(result.html).toContain('<td align="right">1</td>');
       expect(result.html).toContain("</table>");
+      expect(warnings.getWarnings().some((w) => w.elementType === "table")).toBe(false);
+    });
+  });
+
+  describe("table degradation", () => {
+    const codeBlockSettings: PubcopySettings = { ...defaultSettings, tableHandling: "code-block" };
+    const cveTable = [
+      "| Identifier | What the advisory claimed | What the source code showed |",
+      "|---|---|---|",
+      "| CVE-2026-51296 | Use-after-free at lines 3555 and 3575 of json.c in version 3.41.0 | That file is 2,706 lines long |",
+      "| CVE-2026-51302 | Use-after-free in exprComputeOperands() in version 3.41.0 | The function did not exist until mid-2025 |",
+      '| CVE-2026-51303 | Use-after-free already patched in version 3.51.3 | The diff to 3.51.3 shows "absolutely no changes to src/expr.c" |',
+    ].join("\n");
+
+    it("converts the CVE advisory table to one bullet per row (regression)", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(cveTable, MediumProfile, defaultSettings, app as never, warnings);
+      expect(result.html).not.toContain("<table>");
+      expect(result.html).not.toContain("IdentifierWhat the advisory claimed");
+      expect(result.html.match(/<li>/g)).toHaveLength(3);
+      expect(result.html).toContain("<strong>Identifier:</strong> CVE-2026-51296");
+      expect(result.html).toContain("<strong>What the advisory claimed:</strong> Use-after-free in exprComputeOperands() in version 3.41.0");
+      expect(result.html).toContain("<strong>What the source code showed:</strong> That file is 2,706 lines long");
+    });
+
+    it("converts tables to an aligned monospace code block in code-block mode", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const tableMd = "| Name | Value |\n| :--- | ----: |\n| foo | 1 |\n| bar | 2 |";
+      const result = await convertToHtml(tableMd, MediumProfile, codeBlockSettings, app as never, warnings);
+      expect(result.html).not.toContain("<table>");
+      expect(result.html).toContain("<pre><code>");
+      expect(result.html).toContain("| Name | Value |");
+      expect(result.html).toContain("| :--- | ----: |");
+      expect(result.html).toContain("| foo  |     1 |");
+      expect(result.html).toContain("| bar  |     2 |");
+    });
+
+    it("uses an em dash placeholder for empty cells in list mode", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const md = "| A | B |\n| --- | --- |\n| 1 |  |";
+      const result = await convertToHtml(md, MediumProfile, defaultSettings, app as never, warnings);
+      expect(result.html).toContain("<li><strong>A:</strong> 1<br><strong>B:</strong> —</li>");
+    });
+
+    it("keeps escaped pipes as literal pipes in cell text", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const md = "| A | B |\n| --- | --- |\n| a\\|b | c |";
+      const result = await convertToHtml(md, MediumProfile, defaultSettings, app as never, warnings);
+      expect(result.html).toContain("<strong>A:</strong> a|b");
+    });
+
+    it("preserves inline markup in cells for list mode, strips it in code-block mode", async () => {
+      const app = createMockApp();
+      const md = "| A | B |\n| --- | --- |\n| **b** | [l](https://x.com) |";
+      const listResult = await convertToHtml(md, MediumProfile, defaultSettings, app as never, new WarningCollector());
+      expect(listResult.html).toContain("<strong>A:</strong> <strong>b</strong>");
+      expect(listResult.html).toContain('<a href="https://x.com">l</a>');
+      const codeResult = await convertToHtml(md, MediumProfile, codeBlockSettings, app as never, new WarningCollector());
+      // The exact padded line: asserting the rendered row catches a cell that
+      // stops being flattened, which a "no <strong> here" check cannot.
+      expect(codeResult.html).toContain("| b   | l   |");
+      expect(codeResult.html).not.toContain("&#x3C;strong>");
+    });
+
+    it("centers cells and emits :-: separators for centered columns", async () => {
+      const app = createMockApp();
+      const md = "| Wide col | B |\n| :---: | :-: |\n| z | y |";
+      const result = await convertToHtml(md, MediumProfile, codeBlockSettings, app as never, new WarningCollector());
+      expect(result.html).toContain("| :------: | :-: |");
+      expect(result.html).toContain("|    z     |  y  |");
+    });
+
+    it("takes alignment from the first body row for a headerless table", async () => {
+      const app = createMockApp();
+      const md = '<table><tr><td align="right">7</td><td>left</td></tr></table>';
+      const result = await convertToHtml(md, MediumProfile, codeBlockSettings, app as never, new WarningCollector());
+      expect(result.html).toContain("| --: | ---- |");
+      expect(result.html).toContain("|   7 | left |");
+    });
+
+    it("renders a header-only table as header plus separator in code-block mode", async () => {
+      const app = createMockApp();
+      const md = "| A | B |\n| --- | --- |";
+      const result = await convertToHtml(md, MediumProfile, codeBlockSettings, app as never, new WarningCollector());
+      expect(result.html).toContain("| A   | B   |\n| --- | --- |");
+    });
+
+    it("removes a table that has no cells and warns", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const result = await convertToHtml(
+        "<table><tbody></tbody></table>",
+        MediumProfile, defaultSettings, app as never, warnings
+      );
+      expect(result.html).not.toContain("<table>");
+      expect(result.html).not.toContain("<ul>");
+      expect(warnings.getWarnings().some((w) => w.reason === "Empty table removed")).toBe(true);
+    });
+
+    it("keeps a literal pipe in a cell and still aligns the columns", async () => {
+      const app = createMockApp();
+      const md = "| A | B |\n| --- | --- |\n| c\\|d | x |";
+      const result = await convertToHtml(md, MediumProfile, codeBlockSettings, app as never, new WarningCollector());
+      const block = /<pre><code>([\s\S]*?)<\/code><\/pre>/.exec(result.html)?.[1] ?? "";
+      const lines = block.split("\n");
+      // Written as authored (no "\|" escape leaking into what the reader sees)
+      expect(lines[2]).toBe("| c|d | x   |");
+      // Widths are measured on the printed text, so every row stays flush
+      expect(new Set(lines.map((l) => l.length)).size).toBe(1);
+    });
+
+    it("keeps image alt text and footnote markers in code-block mode", async () => {
+      const app = createMockApp();
+      const md = "| A | B |\n|---|---|\n| ![cap](https://example.com/i.png) | x[^1] |\n\n[^1]: note";
+      const result = await convertToHtml(md, MediumProfile, codeBlockSettings, app as never, new WarningCollector());
+      expect(result.html).toContain("cap");
+      expect(result.html).toContain("[^1]");
+    });
+
+    it("degrades every table when a document has several", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const md = "| A |\n| --- |\n| 1 |\n\nBetween.\n\n| B |\n| --- |\n| 2 |";
+      const result = await convertToHtml(md, MediumProfile, defaultSettings, app as never, warnings);
+      expect(result.html).not.toContain("<table>");
+      expect(result.html.match(/<ul>/g)).toHaveLength(2);
+      expect(result.html).toContain("<p>Between.</p>");
+    });
+
+    it("renders a header-only table as a single bold line", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const md = "| A | B |\n| --- | --- |";
+      const result = await convertToHtml(md, MediumProfile, defaultSettings, app as never, warnings);
+      expect(result.html).not.toContain("<table>");
+      expect(result.html).toContain("<p><strong>A | B</strong></p>");
+    });
+
+    it("degrades a headerless raw HTML table without inventing labels", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const md = "<table><tr><td>one</td><td>two</td></tr></table>";
+      const result = await convertToHtml(md, MediumProfile, defaultSettings, app as never, warnings);
+      expect(result.html).not.toContain("<table>");
+      expect(result.html).toContain("<li>one<br>two</li>");
+    });
+
+    it("degrades nested raw HTML tables level by level", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const md = "<table><tr><td>outer<table><tr><td>inner</td></tr></table></td></tr></table>";
+      const result = await convertToHtml(md, MediumProfile, defaultSettings, app as never, warnings);
+      expect(result.html).not.toContain("<table>");
+      expect(result.html).toContain("inner");
+      expect(result.html).toContain("outer");
+      expect(warnings.getWarnings().filter((w) => w.elementType === "table")).toHaveLength(2);
+    });
+
+    it("leaves table examples inside code fences untouched", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const md = "```html\n<table><tr><td>x</td></tr></table>\n```";
+      const result = await convertToHtml(md, MediumProfile, defaultSettings, app as never, warnings);
+      expect(result.html).toContain("&#x3C;table>");
+      expect(warnings.getWarnings().some((w) => w.elementType === "table")).toBe(false);
+    });
+
+    it("leaves blocks after a table intact", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const md = "| A |\n| --- |\n| 1 |\n\nAfter the table.";
+      const result = await convertToHtml(md, MediumProfile, defaultSettings, app as never, warnings);
+      expect(result.html).not.toContain("<table>");
+      expect(result.html).toContain("<p>After the table.</p>");
+    });
+
+    it("keeps remote images in cells for the later image pass (list mode)", async () => {
+      const app = createMockApp();
+      const warnings = new WarningCollector();
+      const md = "| A |\n| --- |\n| ![](https://example.com/pic.png) |";
+      const result = await convertToHtml(md, MediumProfile, defaultSettings, app as never, warnings);
+      expect(result.html).not.toContain("<table>");
+      expect(result.html).toContain('<img src="https://example.com/pic.png"');
     });
   });
 

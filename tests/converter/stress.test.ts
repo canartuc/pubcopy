@@ -12,6 +12,7 @@ const defaultSettings: PubcopySettings = {
   stripTags: true,
   stripWikilinks: true,
   imageHandling: "auto",
+  tableHandling: "list",
   showNotification: true,
 };
 
@@ -373,8 +374,9 @@ describe("convert() stress and extreme inputs", () => {
       expect(result.html).toContain("<h4>Deep heading</h4>");
       expect(result.html).not.toContain("<h5>");
 
-      // Table survives
-      expect(result.html).toContain("<table>");
+      // Table degraded to a list (Medium drops <table> on paste)
+      expect(result.html).not.toContain("<table>");
+      expect(result.html).toContain("<strong>Col A:</strong> one");
       expect(result.html).toContain("two");
 
       // Math rendered by KaTeX (1 inline + 1 block)

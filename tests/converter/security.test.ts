@@ -11,6 +11,7 @@ const defaultSettings: PubcopySettings = {
   stripTags: true,
   stripWikilinks: true,
   imageHandling: "auto",
+  tableHandling: "list",
   showNotification: true,
 };
 
@@ -169,6 +170,85 @@ describe("security", () => {
       const result = processFootnotes(html, MediumProfile);
       // Should NOT match because content exceeds 500 chars
       expect(result).toContain(`^[${longContent}]`);
+    });
+  });
+
+  describe("table degradation cannot promote attribute text to markup", () => {
+    // A serializer leaves literal < and > alone inside attribute values, so
+    // markup-looking text in an alt or title must never be treated as a tag
+    // boundary. Parsing the output is the only honest check: a substring
+    // search cannot tell an inert attribute value from a live element.
+    const codeBlockSettings: PubcopySettings = { ...defaultSettings, tableHandling: "code-block" };
+
+    /**
+     * Parse the output and report anything a browser would execute.
+     * jsdom parses without running scripts, so this only inspects structure —
+     * and unlike a substring search it distinguishes a live element from
+     * identical text sitting inertly inside an attribute value.
+     */
+    function liveThreats(html: string): string[] {
+      const found: string[] = [];
+      const walk = (element: Element): void => {
+        const tag = element.tagName.toLowerCase();
+        if (["script", "iframe", "object", "embed"].includes(tag)) found.push(`<${tag}>`);
+        for (const attr of Array.from(element.attributes)) {
+          if (attr.name.startsWith("on")) found.push(`${tag}[${attr.name}]`);
+          if (/^\s*javascript:/i.test(attr.value)) found.push(`${tag}[${attr.name}]=javascript:`);
+        }
+        for (const child of Array.from(element.children)) walk(child);
+      };
+      const container = document.createElement("div");
+      container.innerHTML = html;
+      for (const child of Array.from(container.children)) walk(child);
+      return found;
+    }
+
+    const vectors: [string, string][] = [
+      ["script tag inside an image alt", '| H |\n| --- |\n| ![</table><script>alert(1)</script>](http://e.com/a.png) |'],
+      ["onerror image inside a link title", '| H |\n| --- |\n| [x](http://e.com "</table><img src=y onerror=alert(1)>") |'],
+      ["javascript: URI split across two attributes", '<a href="javascript<table>" title="</table>:alert(1)">click</a>'],
+      ["event handler on a raw table cell", '<table><tr><td onclick="alert(1)">x</td></tr></table>'],
+      ["payload inside a nested raw table", '<table><tr><td><a href="javascript:alert(1)">x</a><table><tr><td onmouseover="alert(2)">y</td></tr></table></td></tr></table>'],
+      ["closing tags as literal cell text", "| H |\n| --- |\n| a </table></td></tr> b |"],
+    ];
+
+    for (const [name, markdown] of vectors) {
+      it(`emits nothing executable for ${name} (list mode)`, async () => {
+        const app = new App();
+        const result = await convert(markdown, MediumProfile, defaultSettings, app as never);
+        expect(liveThreats(result.html)).toEqual([]);
+      });
+
+      it(`emits nothing executable for ${name} (code-block mode)`, async () => {
+        const app = new App();
+        const result = await convert(markdown, MediumProfile, codeBlockSettings, app as never);
+        expect(liveThreats(result.html)).toEqual([]);
+      });
+    }
+
+    it("keeps content whose cell carries a very long style attribute", async () => {
+      const app = new App();
+      const style = "font-family:Calibri;".repeat(15);
+      const markdown = `<table><tr><th>H1</th><th>H2</th></tr><tr><td style="${style}">first</td><td>second</td></tr></table>`;
+      const result = await convert(markdown, MediumProfile, defaultSettings, app as never);
+      expect(result.html).toContain("<strong>H1:</strong> first");
+      expect(result.html).toContain("<strong>H2:</strong> second");
+    });
+
+    it("keeps rows far larger than any regex bound", async () => {
+      const app = new App();
+      const bigCell = "X".repeat(12000);
+      const markdown = `| A |\n| --- |\n| small1 |\n| ${bigCell} |\n| small2 |`;
+      const result = await convert(markdown, MediumProfile, defaultSettings, app as never);
+      expect(result.html).toContain(bigCell);
+      expect(result.html).toContain("small1");
+      expect(result.html).toContain("small2");
+    });
+
+    it("does not warn about tables when a link title merely mentions one", async () => {
+      const app = new App();
+      const result = await convert('Some [l](https://x.com "a <table> b") text.', MediumProfile, defaultSettings, app as never);
+      expect(result.warnings.getWarnings().some((w) => w.elementType === "table")).toBe(false);
     });
   });
 });
