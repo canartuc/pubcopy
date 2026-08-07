@@ -272,6 +272,34 @@ assert_contains "$HTML" "| Col A | Col B |" "Monospace table header rendered"
 assert_contains "$HTML" "| :---- | ----: |" "Column alignment preserved"
 assert_contains "$PLAIN" "| one   |   two |" "Aligned row present in plain text"
 
+# ---------- Test 1c: Declarative settings (Obsidian 1.13+) ----------
+
+log "Test: Declarative settings API"
+
+# Only meaningful on Obsidian 1.13.0+, where getSettingDefinitions() is consumed.
+# Probe host APIs the plugin never overrides (update/getControlValue/
+# setControlValue) -- getSettingDefinitions would match our own subclass and
+# report support on older builds that lack the rest of the API.
+SETTINGS_SUPPORTED=$(obsidian_eval "var t=(app.setting.pluginTabs||[]).filter(function(x){return x.id==='pubcopy'})[0]; (t && typeof t.update === 'function' && typeof t.getControlValue === 'function' && typeof t.setControlValue === 'function') ? 'yes' : 'no'")
+
+if [ "$SETTINGS_SUPPORTED" = "yes" ]; then
+  DEF_KEYS=$(obsidian_eval "(app.setting.pluginTabs||[]).filter(function(t){return t.id==='pubcopy'})[0].getSettingDefinitions().map(function(d){return d.control.key}).join(',')")
+  assert_contains "$DEF_KEYS" "stripFrontmatter" "Definition declared for stripFrontmatter"
+  assert_contains "$DEF_KEYS" "imageHandling" "Definition declared for imageHandling"
+  assert_contains "$DEF_KEYS" "tableHandling" "Definition declared for tableHandling"
+  assert_contains "$DEF_KEYS" "showNotification" "Definition declared for showNotification"
+
+  # settingItems is what Obsidian indexes for the settings search box
+  INDEXED=$(obsidian_eval "var t=(app.setting.pluginTabs||[]).filter(function(t){return t.id==='pubcopy'})[0]; t.update(); String((t.settingItems||[]).length)")
+  assert_contains "$INDEXED" "6" "All 6 settings indexed for settings search"
+
+  # The framework's default read/write must reach plugin.settings and persist it
+  ROUNDTRIP=$(obsidian_eval "var t=(app.setting.pluginTabs||[]).filter(function(t){return t.id==='pubcopy'})[0]; var p=app.plugins.plugins['pubcopy']; var before=t.getControlValue('tableHandling'); Promise.resolve(t.setControlValue('tableHandling','code-block')).then(function(){return p.loadData()}).then(function(d){var disk=d&&d.tableHandling; return Promise.resolve(t.setControlValue('tableHandling',before)).then(function(){return before+'/'+p.settings.tableHandling+'/'+disk})})")
+  assert_contains "$ROUNDTRIP" "list/list/code-block" "Setting value round-trips through settings and disk"
+else
+  log "  (skipped: Obsidian build predates the declarative settings API)"
+fi
+
 # ---------- Test 2: Security / XSS prevention ----------
 
 log "Test: Security / XSS prevention"

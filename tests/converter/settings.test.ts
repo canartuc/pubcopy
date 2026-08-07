@@ -141,6 +141,64 @@ describe("loadSettings / saveSettings", () => {
   });
 });
 
+describe("getSettingDefinitions (Obsidian 1.13+ declarative settings)", () => {
+  /** Control-bearing definitions, which is all this tab returns. */
+  function definitions(tab: PubcopySettingTab) {
+    return tab.getSettingDefinitions() as {
+      name: string;
+      desc?: string;
+      aliases?: string[];
+      control: { type: string; key: string; defaultValue?: unknown; options?: Record<string, string> };
+    }[];
+  }
+
+  async function createTab(): Promise<PubcopySettingTab> {
+    const { plugin, app } = createPlugin();
+    await plugin.loadSettings();
+    return new PubcopySettingTab(app as never, plugin);
+  }
+
+  it("exposes every persisted setting, so none is missing from settings search", async () => {
+    const defs = definitions(await createTab());
+    const declared = defs.map((d) => d.control.key).sort();
+    expect(declared).toEqual(Object.keys(DEFAULT_SETTINGS).sort());
+  });
+
+  it("gives every definition a name and a description", async () => {
+    for (const def of definitions(await createTab())) {
+      expect(def.name.length).toBeGreaterThan(0);
+      expect(def.desc?.length ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  it("declares a control type matching each setting's stored type", async () => {
+    const settings = DEFAULT_SETTINGS as unknown as Record<string, unknown>;
+    for (const def of definitions(await createTab())) {
+      const expected = typeof settings[def.control.key] === "boolean" ? "toggle" : "dropdown";
+      expect(def.control.type).toBe(expected);
+    }
+  });
+
+  it("offers dropdown options covering the stored default", async () => {
+    const settings = DEFAULT_SETTINGS as unknown as Record<string, unknown>;
+    for (const def of definitions(await createTab())) {
+      if (def.control.type !== "dropdown") continue;
+      expect(Object.keys(def.control.options ?? {})).toContain(settings[def.control.key]);
+    }
+  });
+
+  it("uses the shipped defaults as each control's fallback value", async () => {
+    const settings = DEFAULT_SETTINGS as unknown as Record<string, unknown>;
+    for (const def of definitions(await createTab())) {
+      expect(def.control.defaultValue).toBe(settings[def.control.key]);
+    }
+  });
+
+  it("returns a non-empty array, so Obsidian 1.13+ skips the display() fallback", async () => {
+    expect(definitions(await createTab()).length).toBeGreaterThan(0);
+  });
+});
+
 describe("PubcopySettingTab", () => {
   it("display() runs without throwing using the mock containerEl", async () => {
     const { plugin, app } = createPlugin();
