@@ -277,7 +277,10 @@ assert_contains "$PLAIN" "| one   |   two |" "Aligned row present in plain text"
 log "Test: Declarative settings API"
 
 # Only meaningful on Obsidian 1.13.0+, where getSettingDefinitions() is consumed.
-SETTINGS_SUPPORTED=$(obsidian_eval "(app.setting.pluginTabs||[]).filter(function(t){return t.id==='pubcopy'})[0] && typeof (app.setting.pluginTabs||[]).filter(function(t){return t.id==='pubcopy'})[0].getSettingDefinitions === 'function' ? 'yes' : 'no'")
+# Probe host APIs the plugin never overrides (update/getControlValue/
+# setControlValue) -- getSettingDefinitions would match our own subclass and
+# report support on older builds that lack the rest of the API.
+SETTINGS_SUPPORTED=$(obsidian_eval "var t=(app.setting.pluginTabs||[]).filter(function(x){return x.id==='pubcopy'})[0]; (t && typeof t.update === 'function' && typeof t.getControlValue === 'function' && typeof t.setControlValue === 'function') ? 'yes' : 'no'")
 
 if [ "$SETTINGS_SUPPORTED" = "yes" ]; then
   DEF_KEYS=$(obsidian_eval "(app.setting.pluginTabs||[]).filter(function(t){return t.id==='pubcopy'})[0].getSettingDefinitions().map(function(d){return d.control.key}).join(',')")
