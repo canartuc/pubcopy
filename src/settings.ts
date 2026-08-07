@@ -5,9 +5,17 @@
  *
  * Settings are persisted via Obsidian's `loadData()`/`saveData()` mechanism,
  * which stores them in `<vault>/.obsidian/plugins/pubcopy/data.json`.
+ *
+ * The tab is declared twice on purpose. `getSettingDefinitions()` is the
+ * declarative API added in Obsidian 1.13.0, which makes each setting findable
+ * from the settings search box; `display()` renders the same settings
+ * imperatively for the older versions still covered by `minAppVersion`.
+ * Obsidian skips `display()` whenever `getSettingDefinitions()` returns a
+ * non-empty array, so only one of them ever runs.
  */
 
 import { App, PluginSettingTab, Setting } from "obsidian";
+import type { SettingDefinitionItem } from "obsidian";
 import type PubcopyPlugin from "./main";
 
 /**
@@ -62,6 +70,98 @@ export class PubcopySettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
+  /**
+   * Declarative settings for Obsidian 1.13.0 and later.
+   *
+   * Values are read and written through `PluginSettingTab`'s default
+   * `getControlValue`/`setControlValue`, which operate on
+   * `this.plugin.settings` and persist it — the same thing
+   * {@link PubcopyPlugin.saveSettings} does.
+   *
+   * Every key in {@link PubcopySettings} must appear here, or that setting
+   * becomes unreachable from settings search. A test enforces this.
+   */
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      {
+        name: "Strip frontmatter",
+        desc: "Remove YAML frontmatter from output",
+        aliases: ["yaml", "properties", "metadata"],
+        control: {
+          type: "toggle",
+          key: "stripFrontmatter",
+          defaultValue: DEFAULT_SETTINGS.stripFrontmatter,
+        },
+      },
+      {
+        name: "Strip tags",
+        desc: "Remove #tag and #tag/subtag from output",
+        aliases: ["hashtag"],
+        control: {
+          type: "toggle",
+          key: "stripTags",
+          defaultValue: DEFAULT_SETTINGS.stripTags,
+        },
+      },
+      {
+        name: "Strip wikilinks",
+        desc: "Convert [[links]] to plain text",
+        aliases: ["internal links", "backlinks"],
+        control: {
+          type: "toggle",
+          key: "stripWikilinks",
+          defaultValue: DEFAULT_SETTINGS.stripWikilinks,
+        },
+      },
+      {
+        name: "Image handling",
+        desc: "How to handle images in output",
+        aliases: ["base64", "attachments", "pictures"],
+        control: {
+          type: "dropdown",
+          key: "imageHandling",
+          defaultValue: DEFAULT_SETTINGS.imageHandling,
+          options: {
+            auto: "Auto (base64 for local, URL for remote)",
+            "always-base64": "Always embed as base64",
+            "always-url": "Always keep as URL",
+          },
+        },
+      },
+      {
+        name: "Table handling",
+        desc: "How to convert tables for platforms that do not support them",
+        aliases: ["medium", "tables", "code block"],
+        control: {
+          type: "dropdown",
+          key: "tableHandling",
+          defaultValue: DEFAULT_SETTINGS.tableHandling,
+          options: {
+            list: "Bulleted list (one bullet per row)",
+            "code-block": "Monospace table in a code block",
+          },
+        },
+      },
+      {
+        name: "Show notification",
+        desc: "Display a notice after copying",
+        aliases: ["notice", "toast"],
+        control: {
+          type: "toggle",
+          key: "showNotification",
+          defaultValue: DEFAULT_SETTINGS.showNotification,
+        },
+      },
+    ];
+  }
+
+  /**
+   * Imperative fallback for Obsidian versions older than 1.13.0.
+   *
+   * Obsidian 1.13.0+ never calls this — it renders
+   * {@link PubcopySettingTab.getSettingDefinitions} instead — so any setting
+   * added here must be added there too.
+   */
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
