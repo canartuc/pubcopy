@@ -28,6 +28,25 @@ export function showSuccess(
 }
 
 /**
+ * Warn that Obsidian should be restarted after the plugin was updated.
+ *
+ * Replacing a plugin's files in place does not always retire the build that
+ * is already running. A half-swapped plugin can register its menus and report
+ * success while copying nothing, which is indistinguishable from a broken
+ * release. This notice fires once per version change and stays up long enough
+ * to read.
+ *
+ * @param previous - Version that was running before this load.
+ * @param current - Version now on disk.
+ */
+export function showUpdateRestartNotice(previous: string, current: string): void {
+  new Notice(
+    `Pubcopy updated from ${previous} to ${current}. Restart Obsidian, or disable and re-enable the plugin, before copying. Until then copying may do nothing.`,
+    15000
+  );
+}
+
+/**
  * Placeholder for warning display. Currently intentionally silent.
  *
  * Warnings are collected during conversion but not shown to the user

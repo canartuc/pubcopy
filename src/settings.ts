@@ -47,7 +47,20 @@ export interface PubcopySettings {
   tableHandling: TableHandling;
   /** Show an Obsidian Notice after successful copy. */
   showNotification: boolean;
+  /**
+   * Version that was running the last time the plugin loaded. Internal
+   * bookkeeping, not user-configurable: it is how an in-place update is
+   * detected so the user can be told to restart. Empty on first install.
+   */
+  lastRunVersion: string;
 }
+
+/**
+ * Persisted keys that are internal bookkeeping rather than user settings.
+ * They are deliberately absent from the settings UI and from
+ * {@link PubcopySettingTab.getSettingDefinitions}.
+ */
+export const INTERNAL_SETTING_KEYS: readonly string[] = ["lastRunVersion"];
 
 /** Sensible defaults for first-time users. All stripping enabled, auto image mode. */
 export const DEFAULT_SETTINGS: PubcopySettings = {
@@ -57,6 +70,7 @@ export const DEFAULT_SETTINGS: PubcopySettings = {
   imageHandling: "auto",
   tableHandling: "list",
   showNotification: true,
+  lastRunVersion: "",
 };
 
 /**

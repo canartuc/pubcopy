@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_SETTINGS, PubcopySettingTab } from "../../src/settings";
+import { DEFAULT_SETTINGS, INTERNAL_SETTING_KEYS, PubcopySettingTab } from "../../src/settings";
 import PubcopyPlugin from "../../src/main";
 import { App } from "../mocks/obsidian";
 
@@ -75,7 +75,7 @@ describe("settings", () => {
     expect(DEFAULT_SETTINGS.tableHandling).toBe("list");
   });
 
-  it("has exactly the 6 documented keys with current defaults (drift guard)", () => {
+  it("has exactly the documented keys with current defaults (drift guard)", () => {
     expect(DEFAULT_SETTINGS).toEqual({
       stripFrontmatter: true,
       stripTags: true,
@@ -83,15 +83,21 @@ describe("settings", () => {
       imageHandling: "auto",
       tableHandling: "list",
       showNotification: true,
+      lastRunVersion: "",
     });
     expect(Object.keys(DEFAULT_SETTINGS).sort()).toEqual([
       "imageHandling",
+      "lastRunVersion",
       "showNotification",
       "stripFrontmatter",
       "stripTags",
       "stripWikilinks",
       "tableHandling",
     ]);
+  });
+
+  it("treats lastRunVersion as internal, not a user setting", () => {
+    expect(INTERNAL_SETTING_KEYS).toContain("lastRunVersion");
   });
 });
 
@@ -158,10 +164,20 @@ describe("getSettingDefinitions (Obsidian 1.13+ declarative settings)", () => {
     return new PubcopySettingTab(app as never, plugin);
   }
 
-  it("exposes every persisted setting, so none is missing from settings search", async () => {
+  it("exposes every user-facing setting, so none is missing from settings search", async () => {
     const defs = definitions(await createTab());
     const declared = defs.map((d) => d.control.key).sort();
-    expect(declared).toEqual(Object.keys(DEFAULT_SETTINGS).sort());
+    const userFacing = Object.keys(DEFAULT_SETTINGS)
+      .filter((k) => !INTERNAL_SETTING_KEYS.includes(k))
+      .sort();
+    expect(declared).toEqual(userFacing);
+  });
+
+  it("never renders internal bookkeeping keys as settings", async () => {
+    const declared = definitions(await createTab()).map((d) => d.control.key);
+    for (const internal of INTERNAL_SETTING_KEYS) {
+      expect(declared).not.toContain(internal);
+    }
   });
 
   it("gives every definition a name and a description", async () => {

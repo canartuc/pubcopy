@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import PubcopyPlugin from "../src/main";
-import { App, Menu, TFile, MarkdownView } from "./mocks/obsidian";
+import { App, Menu, Notice, TFile, MarkdownView } from "./mocks/obsidian";
 
 // Mock ClipboardItem since jsdom doesn't have it
 class MockClipboardItem {
@@ -180,6 +180,137 @@ describe("PubcopyPlugin menus", () => {
 
       const html = await clipboardHtml();
       expect(html).toContain("Full note");
+    });
+  });
+
+  describe("restart notice after an in-place update", () => {
+    /** Load a plugin whose manifest reports `version`, with data.json seeded. */
+    async function loadAt(
+      version: string,
+      saved?: Record<string, unknown>
+    ): Promise<PubcopyPlugin> {
+      const app = new App();
+      const plugin = new PubcopyPlugin(app as never, { id: "pubcopy" } as never);
+      plugin.manifest.version = version;
+      if (saved) await plugin.saveData(saved);
+      Notice.reset();
+      await plugin.onload();
+      return plugin;
+    }
+
+    function restartNotices(): Notice[] {
+      return Notice.instances.filter((n) => /restart/i.test(n.message));
+    }
+
+    it("warns when the version on disk differs from the last run", async () => {
+      await loadAt("1.7.0", { lastRunVersion: "1.6.1" });
+      const notices = restartNotices();
+      expect(notices).toHaveLength(1);
+      expect(notices[0].message).toContain("1.6.1");
+      expect(notices[0].message).toContain("1.7.0");
+    });
+
+    it("stays quiet on a first install, where nothing stale can exist", async () => {
+      await loadAt("1.7.0");
+      expect(restartNotices()).toHaveLength(0);
+    });
+
+    it("stays quiet when the version is unchanged", async () => {
+      await loadAt("1.7.0", { lastRunVersion: "1.7.0" });
+      expect(restartNotices()).toHaveLength(0);
+    });
+
+    it("records the running version so the next load is quiet", async () => {
+      const plugin = await loadAt("1.7.0", { lastRunVersion: "1.6.1" });
+      expect(plugin.settings.lastRunVersion).toBe("1.7.0");
+      expect(await plugin.loadData()).toMatchObject({ lastRunVersion: "1.7.0" });
+    });
+
+    it("warns only once, not on every load after the update", async () => {
+      const first = await loadAt("1.7.0", { lastRunVersion: "1.6.1" });
+      expect(restartNotices()).toHaveLength(1);
+
+      Notice.reset();
+      const app = new App();
+      const second = new PubcopyPlugin(app as never, { id: "pubcopy" } as never);
+      second.manifest.version = "1.7.0";
+      await second.saveData(first.settings as unknown as Record<string, unknown>);
+      await second.onload();
+      expect(restartNotices()).toHaveLength(0);
+    });
+
+    it("keeps the user's settings when it records the version", async () => {
+      const plugin = await loadAt("1.7.0", {
+        lastRunVersion: "1.6.1",
+        tableHandling: "code-block",
+        showNotification: false,
+      });
+      expect(plugin.settings.tableHandling).toBe("code-block");
+      expect(plugin.settings.showNotification).toBe(false);
+    });
+
+    it("stays quiet on a cold start, where the new build was just read from disk", async () => {
+      // Updating with Obsidian closed is the README's own manual-install path.
+      // Nothing is stale, so telling the user to restart would be wrong.
+      const app = new App();
+      const plugin = new PubcopyPlugin(app as never, { id: "pubcopy" } as never);
+      plugin.manifest.version = "1.7.0";
+      app.workspace.layoutReady = false;
+      await plugin.saveData({ lastRunVersion: "1.6.1" });
+      Notice.reset();
+      await plugin.onload();
+
+      expect(restartNotices()).toHaveLength(0);
+      // The marker still advances, so the next mid-session update is detected
+      expect(plugin.settings.lastRunVersion).toBe("1.7.0");
+    });
+
+    it("survives a vault it cannot write to, keeping commands and menus", async () => {
+      // A read-only vault or a sync client holding data.json must never cost
+      // the user the whole plugin — that is worse than the bug being fixed.
+      const app = new App();
+      const plugin = new PubcopyPlugin(app as never, { id: "pubcopy" } as never);
+      plugin.manifest.version = "1.7.0";
+      await plugin.saveData({ lastRunVersion: "1.6.1" });
+      plugin.saveData = () => Promise.reject(new Error("EACCES: read-only file system"));
+      Notice.reset();
+
+      await expect(plugin.onload()).resolves.toBeUndefined();
+
+      const file = new TFile("note.md");
+      app.vault.addMockFile("note.md", "# Heading\n\nBody text.");
+      const menu = new Menu();
+      app.workspace.trigger("file-menu", menu, file);
+      await clickPubcopyItem(menu, "Copy for medium");
+      expect(await clipboardHtml()).toContain("Body text.");
+    });
+
+    it("registers everything even on a first install that cannot persist", async () => {
+      const app = new App();
+      const plugin = new PubcopyPlugin(app as never, { id: "pubcopy" } as never);
+      plugin.manifest.version = "1.7.0";
+      plugin.saveData = () => Promise.reject(new Error("ENOSPC: no space left"));
+      Notice.reset();
+
+      await expect(plugin.onload()).resolves.toBeUndefined();
+
+      const file = new TFile("note.md");
+      app.vault.addMockFile("note.md", "# Heading\n\nBody text.");
+      const menu = new Menu();
+      app.workspace.trigger("file-menu", menu, file);
+      await clickPubcopyItem(menu, "Copy for medium");
+      expect(await clipboardHtml()).toContain("Body text.");
+    });
+
+    it("still registers commands and copies after warning", async () => {
+      const plugin = await loadAt("1.7.0", { lastRunVersion: "1.6.1" });
+      const app = plugin.app as unknown as App;
+      const file = new TFile("note.md");
+      app.vault.addMockFile("note.md", "# Heading\n\nBody text.");
+      const menu = new Menu();
+      app.workspace.trigger("file-menu", menu, file);
+      await clickPubcopyItem(menu, "Copy for medium");
+      expect(await clipboardHtml()).toContain("Body text.");
     });
   });
 });

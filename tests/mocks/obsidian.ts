@@ -1,6 +1,13 @@
 // Mock Obsidian API for testing
 export class Notice {
-  constructor(public message: string, public timeout?: number) {}
+  /** Every notice raised since the last reset, so tests can assert on them. */
+  static instances: Notice[] = [];
+  static reset(): void {
+    Notice.instances = [];
+  }
+  constructor(public message: string, public timeout?: number) {
+    Notice.instances.push(this);
+  }
 }
 
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -135,6 +142,12 @@ export class Workspace {
   private handlers: Map<string, Array<(...args: unknown[]) => void>> = new Map();
   /** Test helper: set the view returned by getActiveViewOfType. */
   activeView: MarkdownView | null = null;
+  /**
+   * False while Obsidian is starting up, true once a plugin is enabled or
+   * reloaded mid-session. Defaults to true because that is the state most
+   * tests exercise; set false to simulate a cold start.
+   */
+  layoutReady = true;
 
   on(event: string, callback: (...args: unknown[]) => void) {
     const list = this.handlers.get(event) ?? [];
