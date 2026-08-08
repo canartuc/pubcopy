@@ -31,7 +31,11 @@ import { MediumProfile, SubstackProfile, MarkdownProfile } from "./platforms";
 import type { PlatformProfile } from "./platforms";
 import { convert } from "./converter";
 import { writeToClipboard } from "./clipboard/writer";
-import { showSuccess, showWarnings } from "./utils/notifications";
+import {
+  showSuccess,
+  showWarnings,
+  showUpdateRestartNotice,
+} from "./utils/notifications";
 import { PubcopyError } from "./utils/errors";
 
 /**
@@ -91,6 +95,10 @@ export default class PubcopyPlugin extends Plugin {
         this.addFileMenuSubmenu(menu, file);
       })
     );
+
+    // Runs last, and swallows its own failures: nothing about the update
+    // check may cost the user their commands, menus, or settings tab.
+    await this.warnIfUpdatedInPlace();
   }
 
   /**
@@ -276,5 +284,40 @@ export default class PubcopyPlugin extends Plugin {
   /** Persist current settings to disk. */
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+  }
+
+  /**
+   * Tell the user to restart when the plugin's files were replaced under a
+   * running Obsidian.
+   *
+   * Updating in place leaves the previous build partly live: menus and
+   * commands still register, but a copy can silently do nothing, which looks
+   * like a broken release rather than a stale process.
+   *
+   * The notice is owed only when the swap happened mid-session. `layoutReady`
+   * is false while Obsidian starts up and true once a plugin is enabled or
+   * reloaded afterwards, which separates the stale case from a cold start
+   * that just read the new build off disk. Nothing is stale then, so telling
+   * the user to restart the app they only just opened would be wrong.
+   *
+   * Never fires on a first install, where there is no previous build.
+   */
+  private async warnIfUpdatedInPlace(): Promise<void> {
+    const current = this.manifest.version;
+    const previous = this.settings.lastRunVersion;
+    if (previous === current) return;
+
+    if (previous && this.app.workspace.layoutReady) {
+      showUpdateRestartNotice(previous, current);
+    }
+
+    this.settings.lastRunVersion = current;
+    try {
+      await this.saveSettings();
+    } catch {
+      // A vault that cannot be written to — read-only media, a full disk, a
+      // sync client holding data.json open — must not cost the user the whole
+      // plugin. The marker is simply retried on the next load.
+    }
   }
 }

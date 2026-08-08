@@ -14,6 +14,7 @@ const defaultSettings: PubcopySettings = {
   imageHandling: "auto",
   tableHandling: "list",
   showNotification: true,
+  lastRunVersion: "",
 };
 
 function createMockApp(): App {

@@ -300,6 +300,104 @@ else
   log "  (skipped: Obsidian build predates the declarative settings API)"
 fi
 
+# ---------- Test 1d: Command palette and file menu agree ----------
+#
+# The two entry points read the note by different routes (active editor vs
+# vault.cachedRead). A user seeing one of them copy nothing while the other
+# works is the symptom that matters, so assert they produce the same bytes.
+
+log "Test: Command palette and file menu produce identical output"
+
+AGREE_OUT="${OUTPUT_PREFIX}_agree.txt"
+rm -f "$VAULT_PATH/$AGREE_OUT"
+
+AGREE_JS="
+var captured = {};
+var realWrite = navigator.clipboard.write.bind(navigator.clipboard);
+function capture(key) {
+  navigator.clipboard.write = function(data) {
+    return data[0].getType('text/html').then(function(b) { return b.text(); })
+      .then(function(h) { captured[key] = h; });
+  };
+}
+function stubItem() {
+  return { title: '', setTitle: function(t){ this.title=t; return this; },
+    setIcon: function(){ return this; }, onClick: function(cb){ this.cb=cb; return this; },
+    setSubmenu: function(){ this.sub = stubMenu(); return this.sub; } };
+}
+function stubMenu() {
+  return { items: [], addItem: function(cb){ var it=stubItem(); this.items.push(it); cb(it); return this; } };
+}
+// executeCommandById returns a boolean synchronously; the copy it starts
+// finishes later, so poll for the captured output instead of chaining on it.
+function waitFor(check, limitMs) {
+  return new Promise(function(resolve, reject) {
+    var started = Date.now();
+    (function poll() {
+      if (check()) { resolve(); return; }
+      if (Date.now() - started > limitMs) { reject(new Error('timed out waiting for copy')); return; }
+      setTimeout(poll, 100);
+    })();
+  });
+}
+capture('palette');
+app.workspace.openLinkText('pubcopy-test-basic', '', false).then(function() {
+  app.commands.executeCommandById('pubcopy:copy-for-medium');
+  return waitFor(function() { return captured.palette !== undefined; }, 10000);
+}).then(function() {
+  capture('menu');
+  var file = app.vault.getAbstractFileByPath('pubcopy-test-basic.md');
+  var menu = stubMenu();
+  app.workspace.trigger('file-menu', menu, file);
+  var root = menu.items.filter(function(i){ return i.title === 'Pubcopy'; })[0];
+  var item = root && root.sub && root.sub.items.filter(function(i){ return i.title === 'Copy for medium'; })[0];
+  if (!item) { throw new Error('menu item missing'); }
+  item.cb();
+  return waitFor(function() { return captured.menu !== undefined; }, 10000);
+}).then(function() {
+  navigator.clipboard.write = realWrite;
+  var p = captured.palette || '', m = captured.menu || '';
+  var verdict = 'palette=' + p.length + ' menu=' + m.length +
+    ' identical=' + (p.length > 0 && p === m) + ' nonempty=' + (p.length > 100);
+  return app.vault.adapter.write('${AGREE_OUT}', verdict);
+}).catch(function(e) {
+  navigator.clipboard.write = realWrite;
+  return app.vault.adapter.write('${AGREE_OUT}', 'ERROR: ' + (e && e.message));
+});
+'done'
+"
+"$OBSIDIAN" eval vault="$VAULT_NAME" code="$AGREE_JS" >/dev/null 2>&1 || true
+for i in $(seq 1 20); do [ -e "$VAULT_PATH/$AGREE_OUT" ] && break; sleep 1; done
+AGREE=$(read_vault_file "$AGREE_OUT")
+
+assert_contains "$AGREE" "nonempty=true" "Copy produces real content, not an empty clipboard"
+assert_contains "$AGREE" "identical=true" "Command palette and file menu copy the same bytes"
+
+# ---------- Test 1e: Update restart notice ----------
+
+log "Test: Restart notice after an in-place update"
+
+NOTICE_OUT="${OUTPUT_PREFIX}_notice.txt"
+rm -f "$VAULT_PATH/$NOTICE_OUT"
+
+# lastRunVersion is written on load; after a normal reload it matches the
+# manifest, so no restart notice is owed.
+NOTICE_JS="
+var p = app.plugins.plugins['pubcopy'];
+p.loadData().then(function(d) {
+  var stored = d && d.lastRunVersion;
+  var running = p.manifest.version;
+  return app.vault.adapter.write('${NOTICE_OUT}',
+    'stored=' + stored + ' running=' + running + ' match=' + (stored === running));
+});
+'done'
+"
+"$OBSIDIAN" eval vault="$VAULT_NAME" code="$NOTICE_JS" >/dev/null 2>&1 || true
+for i in $(seq 1 15); do [ -e "$VAULT_PATH/$NOTICE_OUT" ] && break; sleep 1; done
+NOTICE=$(read_vault_file "$NOTICE_OUT")
+
+assert_contains "$NOTICE" "match=true" "Running version recorded, so no spurious restart notice"
+
 # ---------- Test 2: Security / XSS prevention ----------
 
 log "Test: Security / XSS prevention"

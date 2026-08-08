@@ -13,6 +13,7 @@ const defaultSettings: PubcopySettings = {
   imageHandling: "auto",
   tableHandling: "list",
   showNotification: true,
+  lastRunVersion: "",
 };
 
 describe("security", () => {
